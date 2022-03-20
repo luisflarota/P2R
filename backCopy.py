@@ -1,6 +1,7 @@
 import ast
 import math
 import string
+from operator import itemgetter
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -190,10 +191,6 @@ def calculateAP(path, graph):
                     
     return acumulatedPath
 def loadQueue(graph,start):
-    
-    #imoprts
-    import math
-    
     queue = []
     for item in graph:
         if(item == start):
@@ -203,13 +200,6 @@ def loadQueue(graph,start):
     
     return queue
 def Dijkstra(graph,start,end):
-    
-    #Imports
-    import math
-    from operator import itemgetter
-
-    #Iniciar variaveis
-    #queue = [(node,caminho[],valorCaminhoAcumulado)]
     queue = loadQueue(graph,start)
     done = []
     
@@ -225,27 +215,13 @@ def Dijkstra(graph,start,end):
             break
             
         else:
-            #Fazer expand
-            #Ex: expand = ['A','B','C']
-            #Ex:  h = ('S',caminho['S'],0)
-            #Ex: h[1] = ['S','A']
-            expand = [i[0] for i in graph[head[0]]] #Ex:['A','B','C']
-            
-            #Ciclo para iterar os nós da queue
+            expand = [i[0] for i in graph[head[0]]]
             for position,(n,c,v) in enumerate(queue):
-                
-                #Ver se o nó atual faz parte do expand
                 if n in expand:
-                    
-                    #Arranjar a path para este né e o seu custo acumulado
-                    path = head[1] + [n] #['S','A'] + ['B'] = ['S','A','B']
+                    path = head[1] + [n] 
                     acumulatedPath = calculateAP(path, graph) #7
-                    
-                    #Se o caminho acumulado for inferior ao caminho antigo, substitui-lo
                     if acumulatedPath < v:
                         queue[position] = ([n,path,acumulatedPath])
-            
-            #Remover o head da Queue e adiciona-lo ao Done. Fazer sort da Queue utilizando o elemnto [2] como parametro de comparação
             queue.remove(head)
             queue = sorted(queue,key=itemgetter(2))
             done.append(head)

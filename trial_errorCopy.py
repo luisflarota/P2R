@@ -1,7 +1,4 @@
-import ast
-import json
 from itertools import count
-from tkinter import N
 
 import cv2
 import matplotlib.pyplot as plt
@@ -30,7 +27,11 @@ plt.rcParams['animation.ffmpeg_path'] = r"C:\\Users\\101114992\\Documents\\Resea
 #----------PLACES:
 STEP_INTERPOLATION = 20
 N_Simulations = 2
-truck_payload = 50 #tons
+truck_capacity = 50 #tons
+truck_velocity = 20 #km/h
+loader_payload = 15 #tons
+loader_velocity = 10 #km/h
+
 palette = sns.color_palette(None, 40)
 master = read_csvfile('last_nodeshovel_1.csv', STEP_INTERPOLATION)
 nodes_master = master[0]
@@ -39,7 +40,7 @@ graph = master[2]
 fixed_location_b = master[3]
 fixed_location = master[4]
 location_piles = {key:fixed_location[key]+\
-    [np.random.randint(truck_payload*(N_Simulations+1), 300)]+[palette[index+2]]\
+    [np.random.randint(truck_capacity*(N_Simulations+1), 300)]+[palette[index+2]]\
      for index,key in enumerate(fixed_location) if 'tock' in key}
 print(location_piles)
 set_of_stocks = master[5]
@@ -140,13 +141,17 @@ def animate(i):
     #---------------------------%% THIS SHOULD NOT BE A FIXED PARAMETER!!!!!
     if i in set_stocks.values():
         stock = [key for key,value in set_stocks.items() if value == i][0][0]
-        location_piles[stock][2] = location_piles[stock][2] - truck_payload
+        location_piles[stock][2] = location_piles[stock][2] - truck_capacity
 
     size_stock = list(np.array(list(location_piles.values()),dtype=object)[:,2])
     print(size_stock)
     text_stok = [key+' {} tons'.format(values[2]) for key,values in location_piles.items()]
     ax.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3])
     [ax.text(location_piles[key][0]+10,location_piles[key][1]+10, \
+        text_stok[index], c= location_piles[key][3], fontsize =12, backgroundcolor='white')\
+            for index,key in enumerate(location_piles)]
+    ax1.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3])
+    [ax1.text(location_piles[key][0]+10,location_piles[key][1]+10, \
         text_stok[index], c= location_piles[key][3], fontsize =12, backgroundcolor='white')\
             for index,key in enumerate(location_piles)]
         
