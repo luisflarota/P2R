@@ -183,5 +183,3 @@ plt.show()
 #print(initial_time)
 #ani.save(f, writer=writermp4)
 #end_time = time.time()
-
-
