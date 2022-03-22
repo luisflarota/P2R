@@ -1,4 +1,5 @@
 from itertools import count
+from tkinter import N
 
 import cv2
 import matplotlib.pyplot as plt
@@ -26,7 +27,7 @@ plt.rcParams['animation.ffmpeg_path'] = r"C:\\Users\\101114992\\Documents\\Resea
 
 #----------PLACES:
 STEP_INTERPOLATION = 20
-N_Simulations = 2
+N_Simulations = 1
 truck_capacity = 50 #tons
 truck_velocity = 20 #km/h
 loader_payload = 15 #tons
@@ -39,11 +40,14 @@ nodes = master[1]
 graph = master[2]
 fixed_location_b = master[3]
 fixed_location = master[4]
+set_of_stocks = master[5]
+print(set_of_stocks)
+print(len(set_of_stocks))
+palette_piles = sns.color_palette("viridis",n_colors=len(fixed_location)+1)
 location_piles = {key:fixed_location[key]+\
-    [np.random.randint(truck_capacity*(N_Simulations+1), 300)]+[palette[index+2]]\
+    [np.random.randint(truck_capacity*(N_Simulations+1), truck_capacity*(N_Simulations+2))]+[palette_piles[index]]\
      for index,key in enumerate(fixed_location) if 'tock' in key}
 print(location_piles)
-set_of_stocks = master[5]
 SHOVEL_NODE = fixed_location_b['Shovel']   
 end ='Scale'
 entrance = 'Entrance'
@@ -51,7 +55,7 @@ entrance = 'Entrance'
 from_w = ['Start' for n_sim in range(N_Simulations)]
 decision_time = [0]+[np.random.randint(15,40) for n_sim in range(N_Simulations-1)]
 to_w =[set_of_stocks[np.random.randint(0, len(set_of_stocks))] for i in range(N_Simulations)]
-
+j_shovel = 1
 print(to_w)
 
 fig, (ax, ax1) = plt.subplots(1,2,figsize=(15,7))
@@ -67,37 +71,13 @@ radius_entrance = 50
 #circle_entrance = Circle(tuple(fixed_location['Entrance']), radius_entrance, color='b',fill=False, hatch= '+')
 chart = ax.scatter([],[])
 chart = ax1.scatter([],[])
-I = cv2.imread('backg.png')
-ax.imshow(I,cmap="gray")
-ax1.imshow(I,cmap="gray")
-def ini():
-    for segment in np.unique(nodes_master['seg']):
-        sample = np.array(nodes_master[nodes_master['seg']==segment][['x','y']])
-        for x1, x2 in zip(sample[:-1],sample[1:]):
-            ax.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
-                arrowstyle='->', linestyle="--", lw=2, color='#ccffe7'))
-            ax1.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
-                arrowstyle='->', linestyle="--", lw=2, color='#ccffe7'))    
-    for index,  location in enumerate(fixed_location):
-        coordinate =fixed_location[location]
-        size = 500
-        marker = 'x'
-        if 'tock' not in location:
-            ax.scatter(coordinate[0],coordinate[1], label = location, marker=marker, s = size, linewidths=5, c= np.array(palette[index]))
-            ax1.scatter(coordinate[0],coordinate[1], label = location, marker=marker, s = size, linewidths=5, c= np.array(palette[index]))
-            ax.text(coordinate[0]+10,coordinate[1]+10, location, c= np.array(palette[index]), fontsize =12, backgroundcolor='white')
-            ax1.text(coordinate[0]+10,coordinate[1]+10, location, c= np.array(palette[index]), fontsize =12, backgroundcolor='white')
-        # if location == 'Entrance':
-        #     ax.add_patch(circle_entrance)
-            #ax1.add_patch(circle_entrance)
-    ax.text(100,100, to_w)
-    ax1.text(100,100, to_w)
-    plt.gca().set_aspect('equal', adjustable='box')
-    #plt.legend(loc='best',prop={'size': 15})
-    plt.tight_layout()
-    return chart
+I = cv2.imread('PeteLien.png')
+ax.imshow(I)
+ax1.imshow(I)
 
-
+#GET COORDINATES
+left,right = ax.get_xlim()
+down,up = ax.get_ylim()
 
 #---------- STARTING SIMULATION
 dict_discretize = dict()
@@ -127,52 +107,90 @@ matrix_custo, matrix_sho,\
 
 #important to plot stockpiles
 array_stockpiles = np.array(list(location_piles.values()),dtype=object)
-print(array_stockpiles)
+plot_w = []
+def ini():
+    for segment in np.unique(nodes_master['seg']):
+        sample = np.array(nodes_master[nodes_master['seg']==segment][['x','y']])
+        for x1, x2 in zip(sample[:-1],sample[1:]):
+            ax.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
+                arrowstyle='->', linestyle="--", lw=2, color='#ccffe7'))
+            ax1.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
+                arrowstyle='->', linestyle="--", lw=2, color='#ccffe7'))    
+    for index,  location in enumerate(fixed_location):
+        coordinate =fixed_location[location]
+        size = 200
+        marker = 'x'
+        if 'tock' not in location:
+            color_f = 'r'
+            if 'hovel' in location:
+                color_f = 'k'
+                marker = '^'
+            arrowprops=dict(arrowstyle='->', color=color_f, linewidth=1)
+            ax.scatter(coordinate[0],coordinate[1], label = location, marker=marker, s = size, linewidths=2, c= color_f)
+            ax1.scatter(coordinate[0],coordinate[1], label = location, marker=marker, s = size, linewidths=2, c= color_f)
+            ax.annotate(location,xy = (coordinate[0],coordinate[1]), xytext = (coordinate[0]-60,coordinate[1]-25)\
+                , c= color_f, arrowprops= arrowprops, backgroundcolor = 'w')
+            ax1.annotate(location,xy = (coordinate[0],coordinate[1]), xytext = (coordinate[0]-60,coordinate[1]-25)\
+                , c= color_f, arrowprops= arrowprops,backgroundcolor = 'w')
+        # if location == 'Entrance':
+        #     ax.add_patch(circle_entrance)
+            #ax1.add_patch(circle_entrance)
+    start_up = 50
+    text_up = ['({})C{}-{}'.format(i+1,str(i+1),to_w[i]) for i in range(N_Simulations)]
+    text_up = ', '.join(text_up)
+    
+    fig.suptitle('Allocation: '+text_up)
+    #ax.text(left,up-start_up, text_up)
+    plt.gca().set_aspect('equal', adjustable='box')
+    #plt.legend(loc='best',prop={'size': 15})
+    plt.tight_layout()
+    return chart
 
-
-
+j_shovel=1
 def animate(i):
-
-     
     # print(costumer_palette[i])
     # print(shovel_palette[i])
     #try:
      #   if i< matrix_custo.shape[0]-1:
     #---------------------------%% THIS SHOULD NOT BE A FIXED PARAMETER!!!!!
+    global plot_w
+    global j_shovel
+    [plot.remove() for plot in plot_w]
+    y_text_move = 50
     if i in set_stocks.values():
+        j_shovel+=1
         stock = [key for key,value in set_stocks.items() if value == i][0][0]
         location_piles[stock][2] = location_piles[stock][2] - truck_capacity
-
     size_stock = list(np.array(list(location_piles.values()),dtype=object)[:,2])
-    print(size_stock)
-    text_stok = [key+' {} tons'.format(values[2]) for key,values in location_piles.items()]
-    ax.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3])
-    [ax.text(location_piles[key][0]+10,location_piles[key][1]+10, \
+    text_stok = [key+'\n{} tons'.format(values[2]) for key,values in location_piles.items()]
+    plot_w.append(ax.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3]))
+    plot_w.append([ax.text(location_piles[key][0]+10,location_piles[key][1]+y_text_move, \
         text_stok[index], c= location_piles[key][3], fontsize =12, backgroundcolor='white')\
-            for index,key in enumerate(location_piles)]
-    ax1.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3])
-    [ax1.text(location_piles[key][0]+10,location_piles[key][1]+10, \
+            for index,key in enumerate(location_piles)])
+    plot_w.append(ax1.scatter(array_stockpiles[:,0],array_stockpiles[:,1], marker='o', s = size_stock, c= array_stockpiles[:,3]))
+    plot_w.append([ax1.text(location_piles[key][0]+10,location_piles[key][1]+y_text_move, \
         text_stok[index], c= location_piles[key][3], fontsize =12, backgroundcolor='white')\
-            for index,key in enumerate(location_piles)]
-        
+            for index,key in enumerate(location_piles)])
     if i == large+1:
         exit()
+    plot_w = []
     try:
-        ax.scatter(matrix_custo[i][:,0],matrix_custo[i][:,1], c=costumer_palette[i], linewidths=costumer_linew[i])
+        plot_w.append(ax.scatter(matrix_custo[i][:,0],matrix_custo[i][:,1], marker ='+', c=costumer_palette[i], s=100, linewidth=2))
+        for ind_i in range(len(matrix_custo[i])):
+            coor_elec = matrix_custo[i][ind_i]
+            if coor_elec[0] != None:
+                plot_w.append(ax.text(coor_elec[0],coor_elec[1], 'C'+str(ind_i+1)))
+        plot_w.append(ax1.scatter(matrix_sho[i][0],matrix_sho[i][1], c='k',marker='^', linewidths=5))
+        if matrix_sho[i][0]!= None:
+            plot_w.append(ax1.text(matrix_sho[i][0],matrix_sho[i][1],'C'+str(j_shovel)))
+        # if i>0 and shovel_linew[i]-shovel_linew[i-1]>0.1:
+        #     j_shovel+=1
+        #     plot_w.append(ax1.text(matrix_sho[i][0],matrix_sho[i][1], 'C'+str(j_shovel)))
     except:
         return chart
-    
-    try:
-        ax1.scatter(matrix_sho[i][0],matrix_sho[i][1], c=shovel_palette[i], linewidths=shovel_linew[i])
-    except:
-        return chart        
-    #except:
-    #    return
-    
+
     return chart
         
-    
-
 
 ani = animation.FuncAnimation(fig, animate, init_func = ini,frames = 2000, interval = 190, repeat=False)
 #ani.save('Sunday.mp4')

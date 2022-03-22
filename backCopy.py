@@ -9,7 +9,7 @@ import pandas as pd
 
 
 def read_csvfile(file,step_intmax):
-    location_p = {'Start': [471, 3],
+    location_p = {'Start': [450, 53],
                 'Entrance': [343, 58],
                 'Stock1': [354, 287],
                 'Stock2': [364, 386],
@@ -96,32 +96,47 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, linewidt
         customer_data = dictionary[key]
         to_entrance= [[None, None] for x in range(np.sum(decision_time[:index+1]))]+customer_data[0]
         to_stock = customer_data[1]
+        last_x_entr = to_stock[0][0]
+        last_y_entr = to_stock[0][1]
         to_end = customer_data[2]
         sho_to_sho = customer_data[3]
+        if len(sho_to_sho) ==1:
+            last_x_sho = sho_to_sho[0][0]
+            last_y_sho = sho_to_sho[0][1]
+        else:
+            print('aqui')
+            last_x_sho = sho_to_sho[-1][0]
+            last_y_sho = sho_to_sho[-1][1]
         if index == 0:
             none_shovel = [[None, None] for x in range(len(to_entrance+to_stock) - len(sho_to_sho))]
             sho_to_sho = none_shovel+sho_to_sho
+            if index+1 == len(dictionary):
+                end_shovel = [[last_x_sho, last_y_sho] for x in range(len(to_end))]
+                sho_to_sho = sho_to_sho+end_shovel
             stock_before= len(to_stock)
         else:
             len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
+            stock_before = len(to_stock)
             if len_add_stock> 0:
-                to_stock = [[None, None] for x in range(len_add_stock)]+ to_stock
+                to_stock = [[last_x_entr, last_y_entr] for x in range(len_add_stock)]+ to_stock
                 stock_before= len(to_stock)
+            print(index)
+            print(len(dictionary))
+            if index+1== len(dictionary):
+                print('last')
+                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len(to_end))]
             else:
-                len_add_stock = len_add_stock*-1
-                sho_to_sho = sho_to_sho + [[None, None] for x in range(len_add_stock)]
-                stock_before = len(to_stock)
+                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len_add_stock*-1)]
         if index == len(dictionary)-1:
             large = len(to_entrance+to_stock+to_end)
-        #change stockpiles
-        
-        matrix_for_customer[:,index][0:len(to_entrance+to_stock+to_end)] = np.array(to_entrance+to_stock+to_end)
+        #change stockpiles      
+        matrix_for_customer[:,index][0:len(to_entrance+to_stock+to_end)] = np.array(to_entrance+to_stock+to_end, dtype=object)
         costumer_palette[:,index][0:len(to_entrance+to_stock+to_end)] = np.array([p_customer[
             index]for x in range(len(to_entrance+to_stock+to_end))])
         costumer_linew[:,index][0:len(to_entrance+to_stock+to_end)] = np.array([linewidth[
             index]for x in range(len(to_entrance+to_stock+to_end))])
-        matrix_for_shovel = np.concatenate([matrix_for_shovel,np.array(sho_to_sho)])
-        change_stockpiles[(set_stocks[index], index)] = len(matrix_for_shovel)
+        matrix_for_shovel = np.concatenate([matrix_for_shovel,np.array(sho_to_sho, dtype=object)])
+        change_stockpiles[(set_stocks[index], index)] = len(to_entrance+to_stock)
         shovel_palette= np.concatenate([shovel_palette,np.array([p_shovel[
             index]for x in range(len(sho_to_sho))])])
         shovel_linew= np.concatenate([shovel_linew,np.array([linewidth[
