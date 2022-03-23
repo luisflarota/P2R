@@ -1,24 +1,76 @@
 import ast
 import math
+import sqlite3
 import string
 from operator import itemgetter
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 
-def read_csvfile(file,step_intmax):
-    location_p = {'Start': [450, 53],
-                'Entrance': [343, 58],
-                'Stock1': [354, 287],
-                'Stock2': [364, 386],
-                'Stock3': [252, 422],
-                'Stock4': [132, 169],
-                'Scale': [290, 77],
-                'Shovel': [109, 345]}
-    set_of_stocks = [loc for loc in location_p if 'Stock' in loc]            
-    raw_data= pd.read_csv(file)
+def filter_data(data, filename):
+    list_segments = []
+    list_points=[]
+    data_filter = data[data['filename']==filename]['region_shape_attributes']
+    date_name = data[data['filename']==filename]['region_attributes']
+    for dataf, datan in zip(enumerate(data_filter),enumerate(date_name)):
+        index = dataf[0]
+        data_r = dataf[1]
+        dicti = ast.literal_eval(data_r)
+        #print(dicti)
+        if 'polyline' in dicti.values():
+            x_points = dicti['all_points_x']
+            y_points = dicti['all_points_y']
+            list_segments+=[[x,y, index]for x,y in zip(x_points, y_points)]
+        else:
+            dict_n = ast.literal_eval(datan[1])
+            x_a = dicti['cx']
+            y_a= dicti['cy']
+            name = dict_n['name']
+            list_points.append([x_a, y_a, index,name])
+    return np.array(list_segments),np.array(list_points)
+
+class Dbreader:
+    def __init__(self, connector,cursor,  csvfile):
+        self.connector = connector
+        self.csv = pd.read_csv(csvfile)
+        self.interpolator = 20
+        self.image = 'PeteLien.png'
+        rows = cursor.execute("SELECT * FROM FixedLocations").fetchall()
+        self.fixedloc = {row[1]:[row[3],row[4]] for row in rows}
+        self.customer_req = pd.read_sql_query('SELECT * FROM CustomerReq INNER JOIN \
+            FixedLocations ON FixedLocations.material = CustomerReq.typemat',self.connector)
+        fixed_locations = pd.read_sql_query('SELECT * FROM FixedLocations',self.connector)
+        self.setstocks = list(fixed_locations[fixed_locations\
+            ['typelocation'] == 'stock']['name'])
+        self.stockpileinfo = pd.read_sql_query('SELECT *\
+             FROM StockpileInfo INNER JOIN\
+            FixedLocations ON FixedLocations.id = StockpileInfo.stockid',self.connector)
+        print(self.stockpileinfo)
+        self.palette_piles = sns.color_palette("viridis",n_colors=len(self.customer_req)+1)
+        self.palette_customer = sns.color_palette("husl",n_colors=len(self.customer_req))
+        self.palette_shovel = sns.color_palette("coolwarm",n_colors=len(self.customer_req))
+        self.from_w = ['start' for n_sim in range(len(self.customer_req))]
+        self.decision_time = self.customer_req['timestamp']
+        self.to_w = self.customer_req['name']
+    def read_csvfile(self):
+        self.csv_read = read_csvfile(self.csv,self.interpolator,self.fixedloc)
+        return self.csv_read
+    def location_piles(self):   
+        self.loc_piles_info = {}
+        for index, stock in enumerate(np.unique(self.stockpileinfo['name'])):
+            info_stock = self.stockpileinfo[self.stockpileinfo['name']==stock]
+            max_date = max(info_stock['timestamp'])
+            filtered = info_stock[info_stock['timestamp'] == max_date]
+            tonnage = filtered['tonnage']
+            material = filtered['material']
+            print(list(material))
+            self.loc_piles_info[stock] = self.fixedloc[stock]+list(tonnage)+[self.palette_piles[index]] +[list(material)[0][:2]]
+        return self.loc_piles_info
+def read_csvfile(raw_data,step_intmax, location_p):
+    set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
     segment, points = filter_data(raw_data,'PeteLien.png')
     out = delete_doubles(segment)    
     letter = string.ascii_lowercase
@@ -82,7 +134,7 @@ def read_csvfile(file,step_intmax):
 
     #new_out represents nodes
     return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks,set_of_stocks
-def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, linewidth, N_Simulations, set_stocks, unassigned = [0,0,0]):
+def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, N_Simulations, set_stocks, unassigned = [0,0,0]):
     change_stockpiles ={}
     matrix_for_customer = np.full((2**2**4,N_Simulations,2),None)
     matrix_for_shovel = np.empty(shape = (0,2), dtype=object)
@@ -94,7 +146,7 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, linewidt
     stock_before = 0
     for index, key in enumerate(dictionary):
         customer_data = dictionary[key]
-        to_entrance= [[None, None] for x in range(np.sum(decision_time[:index+1]))]+customer_data[0]
+        to_entrance= [[None, None] for x in range(int(np.sum(decision_time[:index+1])))]+customer_data[0]
         to_stock = customer_data[1]
         last_x_entr = to_stock[0][0]
         last_y_entr = to_stock[0][1]
@@ -104,7 +156,6 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, linewidt
             last_x_sho = sho_to_sho[0][0]
             last_y_sho = sho_to_sho[0][1]
         else:
-            print('aqui')
             last_x_sho = sho_to_sho[-1][0]
             last_y_sho = sho_to_sho[-1][1]
         if index == 0:
@@ -118,58 +169,30 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, linewidt
             len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
             stock_before = len(to_stock)
             if len_add_stock> 0:
-                to_stock = [[last_x_entr, last_y_entr] for x in range(len_add_stock)]+ to_stock
+                to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
                 stock_before= len(to_stock)
-            print(index)
-            print(len(dictionary))
             if index+1== len(dictionary):
-                print('last')
                 sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len(to_end))]
             else:
-                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len_add_stock*-1)]
+                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(int(len_add_stock*-1))]
         if index == len(dictionary)-1:
             large = len(to_entrance+to_stock+to_end)
         #change stockpiles      
         matrix_for_customer[:,index][0:len(to_entrance+to_stock+to_end)] = np.array(to_entrance+to_stock+to_end, dtype=object)
         costumer_palette[:,index][0:len(to_entrance+to_stock+to_end)] = np.array([p_customer[
             index]for x in range(len(to_entrance+to_stock+to_end))])
-        costumer_linew[:,index][0:len(to_entrance+to_stock+to_end)] = np.array([linewidth[
-            index]for x in range(len(to_entrance+to_stock+to_end))])
         matrix_for_shovel = np.concatenate([matrix_for_shovel,np.array(sho_to_sho, dtype=object)])
         change_stockpiles[(set_stocks[index], index)] = len(to_entrance+to_stock)
         shovel_palette= np.concatenate([shovel_palette,np.array([p_shovel[
             index]for x in range(len(sho_to_sho))])])
-        shovel_linew= np.concatenate([shovel_linew,np.array([linewidth[
-            index]for x in range(len(sho_to_sho))])])
-    return matrix_for_customer, matrix_for_shovel, costumer_palette,costumer_linew,shovel_palette,shovel_linew,large,change_stockpiles
+
+    return matrix_for_customer, matrix_for_shovel, costumer_palette,shovel_palette,large,change_stockpiles
 
 
 def get_cmap(n, name='hsv'):
     '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct 
     RGB color; the keyword argument name must be a standard mpl colormap name.'''
     return plt.cm.get_cmap(name, n)
-
-def filter_data(data, filename):
-    list_segments = []
-    list_points=[]
-    data_filter = data[data['filename']==filename]['region_shape_attributes']
-    date_name = data[data['filename']==filename]['region_attributes']
-    for dataf, datan in zip(enumerate(data_filter),enumerate(date_name)):
-        index = dataf[0]
-        data_r = dataf[1]
-        dicti = ast.literal_eval(data_r)
-        #print(dicti)
-        if 'polyline' in dicti.values():
-            x_points = dicti['all_points_x']
-            y_points = dicti['all_points_y']
-            list_segments+=[[x,y, index]for x,y in zip(x_points, y_points)]
-        else:
-            dict_n = ast.literal_eval(datan[1])
-            x_a = dicti['cx']
-            y_a= dicti['cy']
-            name = dict_n['name']
-            list_points.append([x_a, y_a, index,name])
-    return np.array(list_segments),np.array(list_points)
 
 def delete_doubles(array):
     new = array
