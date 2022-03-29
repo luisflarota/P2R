@@ -9,7 +9,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-
+def notinlist(list, element):
+    if element in list:
+        return list
+    else:
+        list.append(element)
+    return list
 def filter_data(data, filename):
     list_segments = []
     list_points=[]
@@ -66,7 +71,6 @@ class Dbreader:
             filtered = info_stock[info_stock['timestamp'] == max_date]
             tonnage = filtered['tonnage']
             material = filtered['material']
-            print(list(material))
             self.loc_piles_info[stock] = self.fixedloc[stock]+list(tonnage)+[self.palette_piles[index]] +[list(material)[0][:2]]
         return self.loc_piles_info
 def read_csvfile(raw_data,step_intmax, location_p):
@@ -131,22 +135,46 @@ def read_csvfile(raw_data,step_intmax, location_p):
                     graph[node_na_before].append((node_na_final, distance-dis_acum))
     
     nodes_loc = {key_lp:node_lp for key_lp in location_p for node_lp in nodes if location_p[key_lp] == nodes[node_lp]}
-
     #new_out represents nodes
-    return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks,set_of_stocks
-def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, N_Simulations, set_stocks, unassigned = [0,0,0]):
-    change_stockpiles ={}
-    matrix_for_customer = np.full((2**2**4,N_Simulations,2),None)
-    matrix_for_shovel = np.empty(shape = (0,2), dtype=object)
-    unassigned = [0,0,0]
-    costumer_palette = np.full((2**2**4,N_Simulations,3),unassigned, dtype=float)
-    costumer_linew = np.full((2**2**4,N_Simulations,),0)
-    shovel_palette= np.empty(shape = (0,3), dtype=float)
-    shovel_linew = np.empty(shape = (0,), dtype=float)
+    return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks
+
+def input_opt(assignment,SHOVEL_NODE,decision_time,decision_time_sum,\
+    fixed_location_b,from_w,entrance,graph,end, nodes,N_Simulations,set_of_stocks):
+    assigned = assignment
+    dict_discretize = dict()
+    i=1
+    for where, to  in zip(from_w,assigned):
+        val_from_w = fixed_location_b[where]
+        val_to_entrance = fixed_location_b[entrance]
+        val_to_w = fixed_location_b[to]
+        val_end = fixed_location_b[end]
+        shortest_toentrace = Dijkstra(graph,val_from_w, val_to_entrance)
+        shortest_path = Dijkstra(graph,val_to_entrance, val_to_w)
+        shortest_end = Dijkstra(graph,val_to_w, val_end)
+        shovel_path = Dijkstra(graph,SHOVEL_NODE, val_to_w)
+        points_toentrance = np.array([nodes[val_shor] for val_shor in shortest_toentrace[1]]).tolist()
+        points_customer_shortest =np.array([nodes[val_shor] for val_shor in shortest_path[1]]).tolist()
+        points_customer_end =np.array([nodes[val_shor] for val_shor in shortest_end[1]]).tolist()
+        points_shovel_shortest = np.array([nodes[val_shor] for val_shor in shovel_path[1]]).tolist()
+        SHOVEL_NODE = val_to_w
+        dict_discretize[where+str(i)] = [points_toentrance, points_customer_shortest,points_customer_end,points_shovel_shortest]
+        i+=1
+    delay = shape_matrixmom_delay(dict_discretize, decision_time, decision_time_sum, N_Simulations, set_of_stocks, unassigned = [0,0,0])
+    return delay
+def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum, N_Simulations, set_stocks, unassigned = [0,0,0]):
+    delay = 0
     stock_before = 0
+    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
+        else 0 for ind,x in enumerate(decision_time_sum)]
+    delay+= sum(decisor_time_all)
     for index, key in enumerate(dictionary):
         customer_data = dictionary[key]
-        to_entrance= [[None, None] for x in range(int(np.sum(decision_time[:index+1])))]+customer_data[0]
+        #lastpointentrance
+        last_point_entrance = customer_data[0][-1]
+        last_p_x = last_point_entrance[0]
+        last_p_y = last_point_entrance[1]
+        to_entrance= [[None, None] for x in range(int(decision_time_sum[index]))]+customer_data[0]\
+            +[[last_p_x,last_p_y] for i in range(decisor_time_all[index])]
         to_stock = customer_data[1]
         last_x_entr = to_stock[0][0]
         last_y_entr = to_stock[0][1]
@@ -167,6 +195,7 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, N_Simula
             stock_before= len(to_stock)
         else:
             len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
+            delay += len_add_stock
             stock_before = len(to_stock)
             if len_add_stock> 0:
                 to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
@@ -178,15 +207,71 @@ def shape_matrixmom_sec(dictionary, decision_time,p_customer, p_shovel, N_Simula
         if index == len(dictionary)-1:
             large = len(to_entrance+to_stock+to_end)
         #change stockpiles      
-        matrix_for_customer[:,index][0:len(to_entrance+to_stock+to_end)] = np.array(to_entrance+to_stock+to_end, dtype=object)
-        costumer_palette[:,index][0:len(to_entrance+to_stock+to_end)] = np.array([p_customer[
+    return delay  
+def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, p_shovel, N_Simulations, set_stocks, unassigned = [0,0,0]):
+    delay = 0
+    change_stockpiles ={}
+    matrix_for_customer = np.full((2**2**4,N_Simulations,2),None)
+    matrix_for_shovel = np.empty(shape = (0,2), dtype=object)
+    unassigned = [0,0,0]
+    costumer_palette = np.full((2**2**4,N_Simulations,3),unassigned, dtype=float)
+    costumer_linew = np.full((2**2**4,N_Simulations,),0)
+    shovel_palette= np.empty(shape = (0,3), dtype=float)
+    shovel_linew = np.empty(shape = (0,), dtype=float)
+    #decisor_time 
+    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
+        else 0 for ind,x in enumerate(decision_time_sum)]
+    stock_before = 0
+    delay+= sum(decisor_time_all)
+    for index, key in enumerate(dictionary):
+        customer_data = dictionary[key]
+        pos = int(key[-2])\
+        #lastpointentrance
+        last_point_entrance = customer_data[0][-1]
+        last_p_x = last_point_entrance[0]
+        last_p_y = last_point_entrance[1] 
+        to_entrance= [[None, None] for x in range(int(decision_time_sum[index]))]+customer_data[0]\
+            +[[last_p_x,last_p_y] for i in range(decisor_time_all[index])]
+        to_stock = customer_data[1]
+        last_x_entr = to_stock[0][0]
+        last_y_entr = to_stock[0][1]
+        to_end = customer_data[2]
+        sho_to_sho = customer_data[3]
+        if len(sho_to_sho) ==1:
+            last_x_sho = sho_to_sho[0][0]
+            last_y_sho = sho_to_sho[0][1]
+        else:
+            last_x_sho = sho_to_sho[-1][0]
+            last_y_sho = sho_to_sho[-1][1]
+        if index == 0:
+            none_shovel = [[None, None] for x in range(len(to_entrance+to_stock) - len(sho_to_sho))]
+            sho_to_sho = none_shovel+sho_to_sho
+            if index+1 == len(dictionary):
+                end_shovel = [[last_x_sho, last_y_sho] for x in range(len(to_end))]
+                sho_to_sho = sho_to_sho+end_shovel
+            stock_before= len(to_stock)
+        else:
+            len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
+            delay += len_add_stock
+            stock_before = len(to_stock)
+            if len_add_stock> 0:
+                to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
+                stock_before= len(to_stock)
+            if index+1== len(dictionary):
+                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len(to_end))]
+            else:
+                sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(int(len_add_stock*-1))]
+        if index == len(dictionary)-1:
+            large = len(to_entrance+to_stock+to_end)
+        #change stockpiles      
+        matrix_for_customer[:,pos][0:len(to_entrance+to_stock+to_end)] = np.array(to_entrance+to_stock+to_end, dtype=object)
+        costumer_palette[:,pos][0:len(to_entrance+to_stock+to_end)] = np.array([p_customer[
             index]for x in range(len(to_entrance+to_stock+to_end))])
         matrix_for_shovel = np.concatenate([matrix_for_shovel,np.array(sho_to_sho, dtype=object)])
         change_stockpiles[(set_stocks[index], index)] = len(to_entrance+to_stock)
         shovel_palette= np.concatenate([shovel_palette,np.array([p_shovel[
             index]for x in range(len(sho_to_sho))])])
-
-    return matrix_for_customer, matrix_for_shovel, costumer_palette,shovel_palette,large,change_stockpiles
+    return matrix_for_customer, matrix_for_shovel, costumer_palette,shovel_palette,large,change_stockpiles,delay
 
 
 def get_cmap(n, name='hsv'):
