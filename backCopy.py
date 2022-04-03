@@ -73,6 +73,63 @@ class Dbreader:
             material = filtered['material']
             self.loc_piles_info[stock] = self.fixedloc[stock]+list(tonnage)+[self.palette_piles[index]] +[list(material)[0][:2]]
         return self.loc_piles_info
+
+def read_csv_2(rawdata, location_p, file_picture_name):
+    """
+    This function deletes interpolation before building the graph. 
+    Thus, it builds the graph with the main points. That way we decrease
+    computational time when performing Djikstra A.
+    **input: (1) rawdata(.csv)   : csvfile from VGG, contains the coordinates in pixels
+             (2) location_p(dict)         : key=fixed locations and values=coordinates in pix
+             (3) file_picture_name(.png)  : name of the png file (.png included). This is needed because the 
+    csv file from VGG comes with it.
+
+    **output:(0) new_out(df)             : plot direction of segments
+             (1) nodes(dict)             : dict of nodes with xy coordinates
+             (2) graph(dict)             : graph that contains routes (nodes and edges)
+             (3) nodes_loc(dict)         : {node: name} of fixed location
+             (4) location_p(dict)        : {name_fixed_location: coordinates}
+             (5) set_of_stocks (list)    : name of the stocks
+        """
+    set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
+    segment, points = filter_data(rawdata,file_picture_name)
+    out = delete_doubles(segment)
+    letter = string.ascii_lowercase
+    letter = list(letter)
+    nodes = {}
+    new_out =[]
+    for let_i, segment in enumerate(np.unique(out[:,2])):
+        let = letter[let_i]
+        data_segm =out[out[:,2]==segment]
+        for seg_i,c_data_segm in enumerate(data_segm):
+            val_data_segm = list(c_data_segm[:2])
+            if val_data_segm in nodes.values():
+                x = [k for k,v in nodes.items() if v == val_data_segm]
+                new_out.append(list(data_segm[seg_i])+[x[0]])
+                continue
+            nodes[let+str(seg_i)] = val_data_segm
+            new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
+    new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
+    graph ={}
+    for seg_n in np.unique(new_out['seg']):
+        data_seg_out = np.array(new_out[new_out['seg']== seg_n])
+        for i_dato in range(data_seg_out.shape[0]-1):
+            bef_p = data_seg_out[i_dato][:2]
+            node_bef = find_key(bef_p, nodes)
+            aft_p = data_seg_out[i_dato+1][:2]
+            node_aft = find_key(aft_p, nodes)
+            if node_aft == node_bef:
+                continue
+            name_node =node_bef+node_aft
+            if node_bef not in graph:
+                graph[node_bef] = list()
+            res_bef_aft  = aft_p-bef_p
+            distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
+            graph[node_bef].append((node_aft, distance))
+    nodes_loc = {key_lp:node_lp for key_lp in location_p for node_lp in nodes if location_p[key_lp] == nodes[node_lp]}
+    return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks
+
+
 def read_csvfile(raw_data,step_intmax, location_p):
     set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
     segment, points = filter_data(raw_data,'PeteLien.png')
@@ -167,6 +224,7 @@ def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum, N_Simulat
     decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
         else 0 for ind,x in enumerate(decision_time_sum)]
     delay+= sum(decisor_time_all)
+    print(delay)
     for index, key in enumerate(dictionary):
         customer_data = dictionary[key]
         #lastpointentrance
@@ -195,9 +253,9 @@ def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum, N_Simulat
             stock_before= len(to_stock)
         else:
             len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
-            delay += len_add_stock
             stock_before = len(to_stock)
             if len_add_stock> 0:
+                delay += len_add_stock
                 to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
                 stock_before= len(to_stock)
             if index+1== len(dictionary):
@@ -208,24 +266,56 @@ def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum, N_Simulat
             large = len(to_entrance+to_stock+to_end)
         #change stockpiles      
     return delay  
-def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, p_shovel, N_Simulations, set_stocks, unassigned = [0,0,0]):
+
+def interpolate(all_nodes, set_nodes, time, velocity):
+    points = []
+    distance_vehicle = velocity * time
+    extra_distance = 0
+    for index, data in enumerate(set_nodes):
+        if index+2 <= len(set_nodes):
+            first_node = set_nodes[index]
+            next_node = set_nodes[index+1]
+            first_pos = np.array(all_nodes[first_node])
+            if index == 0:
+                points.append([first_pos[0],first_pos[1]])
+            sec_pos = np.array(all_nodes[next_node])
+            rest_pos  = sec_pos-first_pos
+            distance = np.sqrt(np.sum(np.square(rest_pos)))
+            azimuth = math.atan2(rest_pos[1], rest_pos[0])
+            if distance+extra_distance >= distance_vehicle:
+                int_loop = math.floor((distance+extra_distance)/distance_vehicle)
+                diff_end = (distance+extra_distance) - distance_vehicle*int_loop
+                for i in range(int_loop):
+                    dist_added = distance_vehicle*(i+1) - extra_distance
+                    x_d = round(first_pos[0] + (dist_added)*math.cos(azimuth),2)
+                    y_d = round(first_pos[1] + (dist_added)*math.sin(azimuth),2)
+                    points.append([x_d, y_d])
+                extra_distance = 0
+                extra_distance+=diff_end
+            else:
+                extra_distance+= distance
+    return np.array(points)
+
+
+def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, 
+                        N_Simulations, set_stocks,time_interval, unassigned = [0,0,0]):
     delay = 0
     change_stockpiles ={}
     matrix_for_customer = np.full((2**2**4,N_Simulations,2),None)
     matrix_for_shovel = np.empty(shape = (0,2), dtype=object)
     unassigned = [0,0,0]
     costumer_palette = np.full((2**2**4,N_Simulations,3),unassigned, dtype=float)
-    costumer_linew = np.full((2**2**4,N_Simulations,),0)
-    shovel_palette= np.empty(shape = (0,3), dtype=float)
-    shovel_linew = np.empty(shape = (0,), dtype=float)
-    #decisor_time 
-    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
+    #ADAPTING TIME TO TIME INTERVAL
+    decision_time = [int(x/time_interval) for x in decision_time]
+    decision_time_sum = [int(x/time_interval) for x in decision_time_sum]
+    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind])\
+         if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
         else 0 for ind,x in enumerate(decision_time_sum)]
     stock_before = 0
     delay+= sum(decisor_time_all)
     for index, key in enumerate(dictionary):
         customer_data = dictionary[key]
-        pos = int(key[-2])\
+        pos = int(key[-2])
         #lastpointentrance
         last_point_entrance = customer_data[0][-1]
         last_p_x = last_point_entrance[0]
@@ -252,9 +342,9 @@ def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, 
             stock_before= len(to_stock)
         else:
             len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
-            delay += len_add_stock
             stock_before = len(to_stock)
             if len_add_stock> 0:
+                delay += len_add_stock
                 to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
                 stock_before= len(to_stock)
             if index+1== len(dictionary):
@@ -269,9 +359,7 @@ def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, 
             index]for x in range(len(to_entrance+to_stock+to_end))])
         matrix_for_shovel = np.concatenate([matrix_for_shovel,np.array(sho_to_sho, dtype=object)])
         change_stockpiles[(set_stocks[index], index)] = len(to_entrance+to_stock)
-        shovel_palette= np.concatenate([shovel_palette,np.array([p_shovel[
-            index]for x in range(len(sho_to_sho))])])
-    return matrix_for_customer, matrix_for_shovel, costumer_palette,shovel_palette,large,change_stockpiles,delay
+    return matrix_for_customer, matrix_for_shovel, costumer_palette,large,change_stockpiles,delay
 
 
 def get_cmap(n, name='hsv'):
@@ -282,9 +370,9 @@ def get_cmap(n, name='hsv'):
 def delete_doubles(array):
     new = array
     #print(array.shape)
-    for index,coordinate in enumerate(array):
-        new_array = np.array([np.linalg.norm(x) for x in array-coordinate])
-        index_2   = np.argwhere((new_array>0)&(new_array<7))
+    for index,coordinate in enumerate(new):
+        new_array = np.array([np.linalg.norm(x) for x in new-coordinate])
+        index_2   = np.argwhere((new_array>=0)&(new_array<7))
         if len(index_2)>0:
             for ind_2 in index_2:
                 new[index][0] =new[ind_2][0][0]

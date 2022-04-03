@@ -1,3 +1,4 @@
+import math
 import sqlite3
 import time
 from itertools import count, permutations
@@ -10,6 +11,7 @@ import seaborn as sns
 #from celluloid import Camera
 from matplotlib import animation
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
+from simplejson import load
 
 from backCopy import *
 
@@ -27,17 +29,24 @@ plt.rcParams['animation.ffmpeg_path'] = r"C:\\Users\\101114992\\Documents\\Resea
 #----------------------------
 
 #----------PLACES:
-
-
-truck_velocity = 20 #km/h
-loader_payload = 15 #tons
-loader_velocity = 10 #km/h
+TIME_INTERVAL = 5 
+IMAGE_FILE_NAME ='PeteLien.png'
+convert_met_sec = 0.28
+truck_velocity = 20 * convert_met_sec#20km/h
+loader_payload = 12 #tons #12 tons per bucket
+loader_cycletime = 5 #40sec
+loader_velocity = 8 * convert_met_sec#8km/h #938M
 end ='scale'
-entrance = 'entrance'
+entrance = 'entrance' 
+
+N_Simulations = 3
 #master
 odb_y = False
 #schedule
-schedule= False
+schedule=False
+title_ifsched = 'FIFO - '
+if schedule:
+    title_ifsched = 'Scheduled - '
 if odb_y:
     connector = sqlite3.connect('P2Rplay.db')
     cursor = connector.cursor()
@@ -62,15 +71,18 @@ if odb_y:
     palette_shovel = dbreader.palette_shovel
     N_Simulations = len(to_w)
     truck_capacity = list(dbreader.customer_req['tonnage'])
+    time_taken = [int(math.ceil(dat/loader_payload)) for i,dat in enumerate(truck_capacity)]
+    print(time_taken)
     trucks = dbreader.customer_req['truck']
 if not odb_y:
 #---------------------------------------------------------------------------------------------
     
     STEP_INTERPOLATION = 20
-    N_Simulations = 3
     truck_capacity = [50 for x in range(N_Simulations)]
+    time_taken = [int(math.ceil(dat/loader_payload)) for i,dat in enumerate(truck_capacity)]
+    print(time_taken)
     palette = sns.color_palette(None, 40)
-    location_p = {'start': [450, 53],
+    location_p = {'start': [613, 161],
                     'entrance': [343, 58],
                     'stock1': [354, 287],
                     'stock2': [364, 386],
@@ -78,7 +90,7 @@ if not odb_y:
                     'stock4': [132, 169],
                     'scale': [290, 77],
                     'shovel': [109, 345]}
-    master = read_csvfile(pd.read_csv('last_nodeshovel_1.csv'), STEP_INTERPOLATION, location_p)
+    master = read_csv_2(pd.read_csv('last_nodeshovel_1.csv'), location_p, IMAGE_FILE_NAME)
     nodes_master = master[0]
     nodes = master[1]
     graph = master[2]
@@ -95,12 +107,16 @@ if not odb_y:
     #---------- NUMBER OF SIMULATIONS:
     ## N_SIMULATIONS  = len(self.customer_req)
     from_w = ['start' for n_sim in range(N_Simulations)]
-    decision_time = [np.random.randint(3,20) for n_sim in range(N_Simulations)]
+    decision_time = [0] + [np.random.randint(3,20) for n_sim in range(N_Simulations-1)]
     decision_time_sum = [sum(decision_time[:i+1]) for i in range(len(decision_time)) if i<len(decision_time)]
     to_w =[set_of_stocks[np.random.randint(0, len(set_of_stocks))] for i in range(N_Simulations)]
     c_order =['C'+str(i) for i in range(N_Simulations)]
-    to_master = to_w
+    
     dict_to_dec = {key+'_'+str(val):(val,val_s) for key,val,val_s in zip(to_w,decision_time, decision_time_sum)}
+    to_master = to_w
+    to_master_text = list(k for k in dict_to_dec)
+    to_w_m = to_master_text
+    print(to_w_m)
     palette_customer = sns.color_palette("husl",n_colors=N_Simulations)
     palette_shovel = sns.color_palette("coolwarm",n_colors=N_Simulations)
 
@@ -119,11 +135,12 @@ if schedule:
         delay.append(delay_each)
     min_d = min(delay)
     arg_min = np.argwhere(np.array(delay)==min_d)
-    to_w = permutation[arg_min[0][0]]
-    decision_time_sum = [dict_to_dec[tim][1] for tim in to_w]
+    #help with annotations
+    to_w_m = permutation[arg_min[0][0]]
+    decision_time_sum = [dict_to_dec[tim][1] for tim in to_w_m]
     diff_sum = np.diff(np.array(decision_time_sum))
     decision_time = [0]+[x if x >0 else 0 for x in diff_sum]
-    to_w=[y.split('_')[0] for y in to_w]
+    to_w=[y.split('_')[0] for y in to_w_m]
 fig, (ax, ax1) = plt.subplots(1,2,figsize=(15,7))
 
 #circle_entrance = Circle(tuple(fixed_location['Entrance']), radius_entrance, color='b',fill=False, hatch= '+')
@@ -139,30 +156,67 @@ down,up = ax.get_ylim()
 
 #---------- STARTING SIMULATION
 dict_discretize = dict()
-
-
-for where, to  in zip(from_w,to_w):
+print(nodes_master)
+for index_ind, datos in enumerate(to_w_m):
+    where = from_w[index_ind]
+    to_text = to_w_m[index_ind]
+    to = to_text.split('_')[0]
     val_from_w = fixed_location_b[where]
     val_to_entrance = fixed_location_b[entrance]
     val_to_w = fixed_location_b[to]
     val_end = fixed_location_b[end]
-    shortest_toentrace = Dijkstra(graph,val_from_w, val_to_entrance)
-    shortest_path = Dijkstra(graph,val_to_entrance, val_to_w)
-    shortest_end = Dijkstra(graph,val_to_w, val_end)
+    #path, nodes, time - entrance
+    path_to_entrance = Dijkstra(graph,val_from_w, val_to_entrance)
+    nodes_entrance = path_to_entrance[1]
+    time_to_entrance = int(math.ceil(path_to_entrance[2]/truck_velocity))
+    points_entrance = interpolate(nodes,nodes_entrance,TIME_INTERVAL, \
+        truck_velocity).tolist()
+    #print(time_to_entrance,points_entrance.shape)
+    #path, nodes, time - stock
+    path_to_stock = Dijkstra(graph,val_to_entrance, val_to_w)
+    nodes_stock = path_to_stock[1]
+    time_to_stock = int(math.ceil(path_to_stock[2]/truck_velocity))
+    time_to_load = int(math.ceil(truck_capacity[index_ind]/loader_payload))\
+        *int(loader_cycletime/TIME_INTERVAL)
+    #print('time to load {}'.format(time_to_load))
+    time_to_stock += time_to_load
+    points_stock = interpolate(nodes,nodes_stock,TIME_INTERVAL, \
+        truck_velocity)
+    #print('original stock {}'.format(points_stock.shape))
+    extra_load = np.array([list(points_stock[-1]) for x in range(time_to_load)])
+    points_stock = np.concatenate((points_stock,extra_load)).tolist()
+    #print(time_to_stock,points_stock.shape)
+    #path, nodes, time - scale
+    path_to_end =  Dijkstra(graph,val_to_w, val_end)
+    nodes_end = path_to_end[1]
+    time_to_end = int(math.ceil(path_to_end[2]/truck_velocity))
+    points_end = interpolate(nodes,nodes_end,TIME_INTERVAL, \
+        truck_velocity).tolist()
+    #print(time_to_end,points_end.shape)
+    #path, nodes, time - shovel
     shovel_path = Dijkstra(graph,SHOVEL_NODE, val_to_w)
-    points_toentrance = np.array([nodes[val_shor] for val_shor in shortest_toentrace[1]]).tolist()
-    points_customer_shortest =np.array([nodes[val_shor] for val_shor in shortest_path[1]]).tolist()
-    points_customer_end =np.array([nodes[val_shor] for val_shor in shortest_end[1]]).tolist()
-    points_shovel_shortest = np.array([nodes[val_shor] for val_shor in shovel_path[1]]).tolist()
+    nodes_shovel = shovel_path[1]
+    time_travel_shovel = int(math.ceil(shovel_path[2]/loader_velocity))
+    #print('ini shovel time: {}'.format(time_travel_shovel))
+    time_travel_shovel += time_to_load
+    points_shovel = interpolate(nodes,nodes_shovel,TIME_INTERVAL, \
+        loader_velocity)
+
+    extra_shovel = np.array([list(points_shovel[-1]) for x in range(time_to_load)])
+    points_shovel = np.concatenate((points_shovel,extra_shovel)).tolist()
+    #print(time_travel_shovel,points_shovel.shape)
+    # points_toentrance = interpolate_3(nodes, shortest_toentrace, TIME_INTERVAL, truck_velocity)
+    # points_customer_shortest =interpolate_3(nodes, shortest_path, TIME_INTERVAL, truck_velocity)
+    # points_customer_end = interpolate_3(nodes, shortest_end, TIME_INTERVAL, truck_velocity)
+    # points_shovel_shortest = interpolate_3(nodes, shovel_path, TIME_INTERVAL, loader_velocity)
     SHOVEL_NODE = val_to_w
-    i= [index for index,dat in enumerate(to_master) if to_master[index]==to]
-    dict_discretize[where+str(i)] = [points_toentrance, points_customer_shortest,points_customer_end,points_shovel_shortest]
+    i= [index for index,dat in enumerate(to_master_text) if to_master_text[index]==to_text]
+    dict_discretize[where+str(i)] = [points_entrance,points_stock,points_end,\
+        points_shovel,time_travel_shovel]
 
-
-matrix_custo, matrix_sho,\
-        costumer_palette,shovel_palette,\
-        large,set_stocks,total_delay = shape_matrixmom_sec(dict_discretize, decision_time,decision_time_sum,palette_customer,
-        palette_shovel,N_Simulations,to_w)
+matrix_custo, matrix_sho,costumer_palette,large,set_stocks,total_delay =\
+     shape_matrixmom_sec(dict_discretize, decision_time,\
+            decision_time_sum,palette_customer,N_Simulations,to_w, TIME_INTERVAL)
 
 #important to plot stockpiles
 array_stockpiles = np.array(list(location_piles.values()),dtype=object)
@@ -200,7 +254,7 @@ def ini():
     text_up = ['({})C{}-{}'.format(i+1,str(i+1),to_w[i]) for i in range(N_Simulations)]
     text_up = ', '.join(text_up)
     
-    fig.suptitle('Delay: '+str(total_delay))
+    fig.suptitle(title_ifsched+'Delay: '+str(total_delay)+' steps')
     ax.set_title("Customer's cycle")
     ax1.set_title("Loader's cycle")
     #ax.text(left,up-start_up, text_up)
@@ -244,31 +298,43 @@ def animate(i):
     plot_w = []
     try:
         plot_w.append(ax.scatter(matrix_custo[i][:,0],matrix_custo[i][:,1], marker ='+', c=costumer_palette[i], s=100, linewidth=2))
-        actives = list()
         txt_up = 20
-        for ind_i in range(len(matrix_custo[i])):
-            coor_elec = matrix_custo[i][ind_i]
-            if coor_elec[0] != None:
-                destination = to_master[ind_i]
-                ind_customer = [index for index, destin in enumerate(to_master) if destin == destination]
-                customer = c_order[ind_i]
-                label_plot = customer
-                label_text = customer+' to: {}'.format(destination)
-                if odb_y:
-                    label_plot = trucks[ind_i]
-                    label_text = label_plot+' to: {}'.format(to_w[ind_i])
-                plot_w.append(ax.text(coor_elec[0],coor_elec[1], label_plot))
-                plot_w.append(ax.text(left+10,up+txt_up, label_text, c = 'k',backgroundcolor='white'))
-                txt_up+=20
-        plot_w.append(ax1.scatter(matrix_sho[i][0],matrix_sho[i][1], c='k',marker='^', linewidths=5))
+        #change color for customer to red
+        active_sec = False
         if matrix_sho[i][0]!= None:
             plot_w.append(ax1.text(matrix_sho[i][0],matrix_sho[i][1],'L1'))
             if j_shovel+1<= len(to_w):
                 label_s = 'Loading to:'+ to_w[j_shovel]
+                active_sec = True
             else:
                 label_s = 'DONE!'
+                active_sec = False
             plot_w.append(ax1.text(left+10,up+20,label_s,c = 'k',\
                 backgroundcolor='white'))
+        for ind_i in range(len(matrix_custo[i])):
+            coor_elec = matrix_custo[i][ind_i]
+            if coor_elec[0] != None:
+                destination = to_master_text[ind_i]
+                # print(to_master_text)
+                # print('--------------custocmer customer')
+                # print(destination)
+                ind_customer = [index for index, destin in enumerate(to_w_m) if destin == destination][0]
+                customer = c_order[ind_i]
+                label_plot = customer
+                destination_text = destination.split('_')[0]
+                label_text = customer+' to: {} ({})'.format(destination_text, str(ind_customer+1))
+                color_costu = 'k'
+                if odb_y:
+                    label_plot = trucks[ind_i]
+                    label_text = label_plot+' to: {}'.format(to_w[ind_i])
+                if active_sec:
+                    if destination_text == to_w[j_shovel] and active_sec:
+                        color_costu = '#FF0000'
+                plot_w.append(ax.text(coor_elec[0],coor_elec[1], label_plot))
+                plot_w.append(ax.text(left+10,up+txt_up, label_text, c = color_costu,backgroundcolor='white'))
+                txt_up+=20
+        plot_w.append(ax1.scatter(matrix_sho[i][0],matrix_sho[i][1], c='k',marker='^', linewidths=5))
+        
         # if i>0 and shovel_linew[i]-shovel_linew[i-1]>0.1:
         #     j_shovel+=1
         #     plot_w.append(ax1.text(matrix_sho[i][0],matrix_sho[i][1], 'C'+str(j_shovel)))
@@ -278,11 +344,12 @@ def animate(i):
     return chart
         
 
-ani = animation.FuncAnimation(fig, animate, init_func = ini,frames = 3000, interval = 500, repeat=False)
-time_n = time.time()
-ani.save(str(int(time_n))+'_sim_'+str(N_Simulations)+'_sched_'+str(schedule) +'_odb_'+\
-    str(odb_y)+'.mp4')
-#plt.show()
+ani = animation.FuncAnimation(fig, animate, init_func = ini,frames = 500, 
+                                interval = 0.1, repeat=False ,cache_frame_data =True)
+# time_n = time.time()
+# ani.save(str(int(time_n))+'_sim_'+str(N_Simulations)+'_sched_'+str(schedule) +'_odb_'+\
+#        str(odb_y)+'.mp4')
+plt.show()
 #f = "C:/Users/101114992/Documents/Research/98Coding/animation.mp4" 
 #writermp4 = animation.FFMpegWriter(fps=1000) 
 #initial_time = time.time()
