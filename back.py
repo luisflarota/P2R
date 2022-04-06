@@ -1,53 +1,38 @@
 import ast
 import math
+import pathlib
 import sqlite3
 import string
+from io import BytesIO
 from operator import itemgetter
 
-import matplotlib.pyplot as plt
+import gspread
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import xlsxwriter
+from PIL import Image
 
-def filter_data(data, filename):
-    list_segments = []
-    list_points=[]
-    data_filter = data[data['filename']==filename]['region_shape_attributes']
-    date_name = data[data['filename']==filename]['region_attributes']
-    for dataf, datan in zip(enumerate(data_filter),enumerate(date_name)):
-        index = dataf[0]
-        data_r = dataf[1]
-        dicti = ast.literal_eval(data_r)
-        #print(dicti)
-        if 'polyline' in dicti.values():
-            x_points = dicti['all_points_x']
-            y_points = dicti['all_points_y']
-            list_segments+=[[x,y, index]for x,y in zip(x_points, y_points)]
-        else:
-            dict_n = ast.literal_eval(datan[1])
-            x_a = dicti['cx']
-            y_a= dicti['cy']
-            name = dict_n['name']
-            list_points.append([x_a, y_a, index,name])
-    return np.array(list_segments),np.array(list_points)
 
 class Dbreader:
-    def __init__(self, connector,cursor,  csvfile):
+    def __init__(self, connector,cursor,csvfile):
         self.connector = connector
         self.csv = pd.read_csv(csvfile)
         self.interpolator = 20
         self.image = 'PeteLien.png'
         rows = cursor.execute("SELECT * FROM FixedLocations").fetchall()
         self.fixedloc = {row[1]:[row[3],row[4]] for row in rows}
+        self.customstatus = pd.read_sql_query('SELECT * FROM CustomerStatus',self.connector)
+        self.creq = pd.read_sql_query('SELECT * FROM CustomerReq',self.connector)
         self.customer_req = pd.read_sql_query('SELECT * FROM CustomerReq INNER JOIN \
             FixedLocations ON FixedLocations.material = CustomerReq.typemat',self.connector)
         fixed_locations = pd.read_sql_query('SELECT * FROM FixedLocations',self.connector)
         self.setstocks = list(fixed_locations[fixed_locations\
             ['typelocation'] == 'stock']['name'])
+        self.stockpileini = pd.read_sql_query('SELECT * FROM StockpileInfo',self.connector)
         self.stockpileinfo = pd.read_sql_query('SELECT *\
              FROM StockpileInfo INNER JOIN\
             FixedLocations ON FixedLocations.id = StockpileInfo.stockid',self.connector)
-        print(self.stockpileinfo)
         self.palette_piles = sns.color_palette("viridis",n_colors=len(self.customer_req)+1)
         self.palette_customer = sns.color_palette("husl",n_colors=len(self.customer_req))
         self.palette_shovel = sns.color_palette("coolwarm",n_colors=len(self.customer_req))
@@ -67,62 +52,6 @@ class Dbreader:
             material = filtered['material']
             self.loc_piles_info[stock] = self.fixedloc[stock]+list(tonnage)+[self.palette_piles[index]] +[list(material)[0][:2]]
         return self.loc_piles_info
-
-def read_csv_2(rawdata, location_p, file_picture_name):
-    """
-    This function deletes interpolation before building the graph. 
-    Thus, graph gets built with main points. That way we decrease
-    computational time when performing Djikstra A.
-    **input: (1) rawdata(.csv)            : csvfile from VGG, contains the coordinates in pixels
-             (2) location_p(dict)         : key=fixed locations and values=coordinates in pix
-             (3) file_picture_name(.png)  : name of the png file (.png included). This is needed because the 
-    csv file from VGG comes with it.
-
-    **output:(0) new_out(df)             : plot direction of segments
-             (1) nodes(dict)             : dict of nodes with xy coordinates
-             (2) graph(dict)             : graph that contains routes (nodes and edges)
-             (3) nodes_loc(dict)         : {node: name} of fixed location
-             (4) location_p(dict)        : {name_fixed_location: coordinates}
-             (5) set_of_stocks (list)    : name of the stocks
-        """
-    set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
-    segment, points = filter_data(rawdata,file_picture_name)
-    out = delete_doubles(segment)
-    letter = string.ascii_lowercase
-    letter = list(letter)
-    nodes = {}
-    new_out =[]
-    for let_i, segment in enumerate(np.unique(out[:,2])):
-        let = letter[let_i]
-        data_segm =out[out[:,2]==segment]
-        for seg_i,c_data_segm in enumerate(data_segm):
-            val_data_segm = list(c_data_segm[:2])
-            if val_data_segm in nodes.values():
-                x = [k for k,v in nodes.items() if v == val_data_segm]
-                new_out.append(list(data_segm[seg_i])+[x[0]])
-                continue
-            nodes[let+str(seg_i)] = val_data_segm
-            new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
-    new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
-    graph ={}
-    for seg_n in np.unique(new_out['seg']):
-        data_seg_out = np.array(new_out[new_out['seg']== seg_n])
-        for i_dato in range(data_seg_out.shape[0]-1):
-            bef_p = data_seg_out[i_dato][:2]
-            node_bef = find_key(bef_p, nodes)
-            aft_p = data_seg_out[i_dato+1][:2]
-            node_aft = find_key(aft_p, nodes)
-            if node_aft == node_bef:
-                continue
-            name_node =node_bef+node_aft
-            if node_bef not in graph:
-                graph[node_bef] = list()
-            res_bef_aft  = aft_p-bef_p
-            distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
-            graph[node_bef].append((node_aft, distance))
-    nodes_loc = {key_lp:node_lp for key_lp in location_p for node_lp in nodes if location_p[key_lp] == nodes[node_lp]}
-    return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks
-
 
 def read_csvfile(raw_data,step_intmax, location_p):
     set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
@@ -189,13 +118,41 @@ def read_csvfile(raw_data,step_intmax, location_p):
     #new_out represents nodes
     return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks
 
+def get_diference(a,b):
+    a = np.array(a)
+    b = np.array(b)
+    delta = b-a
+    distance= np.square(delta)
+    return np.sqrt(np.sum(distance))
+
+def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum,odb=False):
+    delay = 0
+    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
+        else 0 for ind,x in enumerate(decision_time_sum)]
+    delay+= sum(decisor_time_all)
+    stock_before = 0
+    for index, key in enumerate(dictionary):
+        customer_data = dictionary[key]
+        #lastpointentrance
+        time_entrance =customer_data[0]
+        time_entrance+= int(decision_time_sum[index]) +decisor_time_all[index]
+        time_stock =customer_data[1] 
+        time_end =customer_data[2]
+        time_shovel = customer_data[3]
+        if index == 0:
+            none_shovel = time_entrance + time_stock- time_shovel
+            time_shovel += none_shovel
+            stock_before= time_stock
+        else:
+            len_add_stock = stock_before - decision_time[index] +time_shovel - time_stock
+            stock_before = time_stock
+            if len_add_stock> 0:
+                delay += len_add_stock
+    return delay  
 def input_opt(assignment,SHOVEL_NODE,decision_time,decision_time_sum,
             fixed_location_b,from_w,entrance,graph,end,truck_velocity,
             truck_capacity,loader_payload,loader_cycletime, loader_velocity):
     assigned = assignment
-    #This needs to be changed - this means the time that 
-    # is going to be registered in the db
-    ini=20
     dict_discretize = dict()
     i=1
     for index_ind, datos in enumerate(from_w):
@@ -224,112 +181,8 @@ def input_opt(assignment,SHOVEL_NODE,decision_time,decision_time_sum,
         SHOVEL_NODE = val_to_w
         dict_discretize[where+str(i)] = [time_to_entrance, time_to_stock,time_to_end,time_travel_shovel]
         i+=1
-    delay = shape_matrixmom_delay(dict_discretize, decision_time, decision_time_sum,ini)
+    delay = shape_matrixmom_delay(dict_discretize, decision_time, decision_time_sum)
     return delay
-def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum,odb=False):
-    delay = 0
-    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
-        else 0 for ind,x in enumerate(decision_time_sum)]
-    delay+= sum(decisor_time_all)
-    stock_before = 0
-    print(delay)
-    for index, key in enumerate(dictionary):
-        customer_data = dictionary[key]
-        #lastpointentrance
-        time_entrance =customer_data[0]
-        time_entrance+= int(decision_time_sum[index]) +decisor_time_all[index]
-        time_stock =customer_data[1] 
-        time_end =customer_data[2]
-        time_shovel = customer_data[3]
-        if index == 0:
-            none_shovel = time_entrance + time_stock- time_shovel
-            time_shovel += none_shovel
-            stock_before= time_stock
-        else:
-            len_add_stock = stock_before - decision_time[index] +time_shovel - time_stock
-            stock_before = time_stock
-            if len_add_stock> 0:
-                delay += len_add_stock
-    return delay  
-##filldb
-def get_max_id(cursor):
-    cursor.execute('SELECT MAX(id) FROM CustomerStatus')
-    rows = cursor.fetchall()
-    if rows[0][0] == None:
-        return 1
-    else:
-        return rows[0][0]
-
-def add_data(connector,cursor, id,truck,ini,end,duration,status, idsched, issched):
-    cursor.execute("INSERT INTO CustomerStatus VALUES (?, ?, ?, ?,?, ?, ?, ?)",\
-         (id,truck,ini,end,duration,status,idsched, issched))
-    connector.commit() 
-def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initime,
-            c_order, issched = False):
-    id_trial =1
-    is_sched = 0
-    if issched:
-        is_sched = 1
-    delay = 0
-    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
-        else 0 for ind,x in enumerate(decision_time_sum)]
-    delay+= sum(decisor_time_all)
-    stock_before = 0
-    max_id = get_max_id(cursor)+1
-    print(max_id )
-    #dict_delay_sec[where+str(i)] = 
-    #       [time_to_entrance, time_to_stock_sec,time_to_end,time_travel_shovel_sec]
-    print('issssschedddddd'+str(is_sched))
-    for index, key in enumerate(dictionary):
-        idle_p_truck = 0
-        truck = c_order[index]
-        customer_data = dictionary[key]
-        #recording time to entrance + idles
-        time_entrance =customer_data[0]
-        ini_time_entrance = initime +int(decision_time_sum[index])
-        end_time_entrance = ini_time_entrance+time_entrance
-        add_data(connector,cursor, max_id,truck, ini_time_entrance,end_time_entrance,\
-            time_entrance,'toentrance',id_trial, is_sched)
-        max_id+=1
-        idle_p_truck += decisor_time_all[index]
-        time_entrance+= int(decision_time_sum[index]) +decisor_time_all[index]
-        time_stock =customer_data[1] 
-        time_end =customer_data[2]
-        time_shovel = customer_data[3]
-        time_to_load = customer_data[4] 
-        if index == 0:
-            none_shovel = time_entrance + time_stock- time_shovel
-            time_shovel += none_shovel
-            stock_before= time_stock
-        else:
-            len_add_stock = stock_before - decision_time[index] +time_shovel - time_stock
-            stock_before = time_stock
-            if len_add_stock> 0:
-                delay += len_add_stock
-                idle_p_truck +=len_add_stock
-        init_time_idle = end_time_entrance
-        end_time_idle = init_time_idle+idle_p_truck
-        add_data(connector,cursor, max_id,truck, init_time_idle,end_time_idle,idle_p_truck,\
-            'idle',id_trial, is_sched)
-        max_id+=1
-        init_time_stock = end_time_idle
-        end_time_stock =init_time_stock + time_stock -time_to_load
-        add_data(connector,cursor, max_id,truck, init_time_stock,end_time_stock,\
-            time_stock -time_to_load,'tostock',id_trial, is_sched)
-        max_id+=1
-        init_time_load = end_time_stock
-        end_time_load =init_time_load + time_to_load
-        add_data(connector,cursor, max_id,truck, init_time_load,end_time_load,\
-            time_to_load,'loading',id_trial, is_sched)
-        max_id+=1
-        init_time_end = end_time_load
-        end_time_end = init_time_end+time_end
-        add_data(connector,cursor, max_id,truck, init_time_end,end_time_end,\
-             time_end,'toscale',id_trial, is_sched)
-        max_id+=1
-
-    return delay  
-
 def interpolate(all_nodes, set_nodes, time, velocity):
     points = []
     distance_vehicle = velocity * time
@@ -357,9 +210,7 @@ def interpolate(all_nodes, set_nodes, time, velocity):
                 extra_distance+=diff_end
             else:
                 extra_distance+= distance
-    return np.array(points)
-
-
+    return np.array(points)   
 def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer, 
                         N_Simulations, set_stocks,time_interval, unassigned = [0,0,0]):
     delay = 0
@@ -424,11 +275,87 @@ def shape_matrixmom_sec(dictionary, decision_time,decision_time_sum,p_customer,
         change_stockpiles[(set_stocks[index], index)] = len(to_entrance+to_stock)
     return matrix_for_customer, matrix_for_shovel, costumer_palette,large,change_stockpiles,delay
 
+def usingPILandShrink(f): 
+    im = Image.open(f)
+    im.draft('L',(1512,1008))
+    return np.asarray(im) 
 
-def get_cmap(n, name='hsv'):
-    '''Returns a function that maps each index in 0, 1, ..., n-1 to a distinct 
-    RGB color; the keyword argument name must be a standard mpl colormap name.'''
-    return plt.cm.get_cmap(name, n)
+def read_csv_2(rawdata, location_p, file_picture_name):
+    """
+    This function deletes interpolation before building the graph. 
+    Thus, graph gets built with main points. That way we decrease
+    computational time when performing Djikstra A.
+    **input: (1) rawdata(.csv)            : csvfile from VGG, contains the coordinates in pixels
+             (2) location_p(dict)         : key=fixed locations and values=coordinates in pix
+             (3) file_picture_name(.png)  : name of the png file (.png included). This is needed because the 
+    csv file from VGG comes with it.
+
+    **output:(0) new_out(df)             : plot direction of segments
+             (1) nodes(dict)             : dict of nodes with xy coordinates
+             (2) graph(dict)             : graph that contains routes (nodes and edges)
+             (3) nodes_loc(dict)         : {node: name} of fixed location
+             (4) location_p(dict)        : {name_fixed_location: coordinates}
+             (5) set_of_stocks (list)    : name of the stocks
+        """
+    set_of_stocks = [loc for loc in location_p if 'stock' in loc]            
+    segment, points = filter_data(rawdata,file_picture_name)
+    out = delete_doubles(segment)
+    letter = string.ascii_lowercase
+    letter = list(letter)
+    nodes = {}
+    new_out =[]
+    for let_i, segment in enumerate(np.unique(out[:,2])):
+        let = letter[let_i]
+        data_segm =out[out[:,2]==segment]
+        for seg_i,c_data_segm in enumerate(data_segm):
+            val_data_segm = list(c_data_segm[:2])
+            if val_data_segm in nodes.values():
+                x = [k for k,v in nodes.items() if v == val_data_segm]
+                new_out.append(list(data_segm[seg_i])+[x[0]])
+                continue
+            nodes[let+str(seg_i)] = val_data_segm
+            new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
+    new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
+    graph ={}
+    for seg_n in np.unique(new_out['seg']):
+        data_seg_out = np.array(new_out[new_out['seg']== seg_n])
+        for i_dato in range(data_seg_out.shape[0]-1):
+            bef_p = data_seg_out[i_dato][:2]
+            node_bef = find_key(bef_p, nodes)
+            aft_p = data_seg_out[i_dato+1][:2]
+            node_aft = find_key(aft_p, nodes)
+            if node_aft == node_bef:
+                continue
+            name_node =node_bef+node_aft
+            if node_bef not in graph:
+                graph[node_bef] = list()
+            res_bef_aft  = aft_p-bef_p
+            distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
+            graph[node_bef].append((node_aft, distance))
+    nodes_loc = {key_lp:node_lp for key_lp in location_p for node_lp in nodes if location_p[key_lp] == nodes[node_lp]}
+    return new_out, nodes, graph, nodes_loc, location_p, set_of_stocks
+
+def filter_data(data, filename):
+    list_segments = []
+    list_points=[]
+    data_filter = data[data['filename']==filename]['region_shape_attributes']
+    date_name = data[data['filename']==filename]['region_attributes']
+    for dataf, datan in zip(enumerate(data_filter),enumerate(date_name)):
+        index = dataf[0]
+        data_r = dataf[1]
+        dicti = ast.literal_eval(data_r)
+        #print(dicti)
+        if 'polyline' in dicti.values():
+            x_points = dicti['all_points_x']
+            y_points = dicti['all_points_y']
+            list_segments+=[[x,y, index]for x,y in zip(x_points, y_points)]
+        else:
+            dict_n = ast.literal_eval(datan[1])
+            x_a = dicti['cx']
+            y_a= dicti['cy']
+            name = dict_n['name']
+            list_points.append([x_a, y_a, index,name])
+    return np.array(list_segments),np.array(list_points)
 
 def delete_doubles(array):
     new = array
@@ -440,17 +367,13 @@ def delete_doubles(array):
             for ind_2 in index_2:
                 new[index][0] =new[ind_2][0][0]
                 new[index][1] =new[ind_2][0][1]
-    return new    
-def get_diference(a,b):
-    a = np.array(a)
-    b = np.array(b)
-    delta = b-a
-    distance= np.square(delta)
-    return np.sqrt(np.sum(distance))
+    return new
+
 def find_key(val, diction):
     val = list(val)
     x = [k for k,v in diction.items() if v == val]
     return x[0]       
+
 def calculateAP(path, graph):
     #path = ['S','A','B']
     #len = 3 - 1 = 2
@@ -503,3 +426,94 @@ def Dijkstra(graph,start,end):
             count += 1
 
     return head
+def add_data(connector,cursor, id,truck,ini,end,duration,status, idsched, issched):
+    cursor.execute("INSERT OR IGNORE INTO CustomerStatus VALUES (?, ?, ?, ?,?, ?, ?, ?)",\
+         (id,truck,ini,end,duration,status,idsched, issched))
+    connector.commit() 
+def get_max_id(cursor):
+    cursor.execute('SELECT MAX(id) FROM CustomerStatus')
+    rows = cursor.fetchall()
+    if rows[0][0] == None:
+        return 1
+    else:
+        return rows[0][0]
+def to_excel():
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet()
+
+    worksheet.write('A1', 'ID')
+    worksheet.write('B1', 'Company Name')
+    worksheet.write('C1', 'Truck ID')
+    worksheet.write('D1', 'Material')
+    worksheet.data_validation('$D$2:$D$8', {'validate': 'list',
+                                  'source': ['lime', 'crushedstone',\
+                                       'gravel','carbonate']})
+
+    worksheet.write('E1', 'Tonnage')
+    worksheet.write('F1', 'Date')
+    workbook.close()
+    return output
+def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initime,
+            c_order, issched = False):
+    id_trial =1
+    is_sched = 0
+    if issched:
+        is_sched = 1
+    delay = 0
+    decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
+        else 0 for ind,x in enumerate(decision_time_sum)]
+    delay+= sum(decisor_time_all)
+    stock_before = 0
+    max_id = get_max_id(cursor)+1
+    #dict_delay_sec[where+str(i)] = 
+    #       [time_to_entrance, time_to_stock_sec,time_to_end,time_travel_shovel_sec]
+    for index, key in enumerate(dictionary):
+        idle_p_truck = 0
+        truck = c_order[index]
+        customer_data = dictionary[key]
+        #recording time to entrance + idles
+        time_entrance =customer_data[0]
+        ini_time_entrance = initime +int(decision_time_sum[index])
+        end_time_entrance = ini_time_entrance+time_entrance
+        add_data(connector,cursor, max_id,truck, ini_time_entrance,end_time_entrance,\
+            time_entrance,'toentrance',id_trial, is_sched)
+        max_id+=1
+        idle_p_truck += decisor_time_all[index]
+        time_entrance+= int(decision_time_sum[index]) +decisor_time_all[index]
+        time_stock =customer_data[1] 
+        time_end =customer_data[2]
+        time_shovel = customer_data[3]
+        time_to_load = customer_data[4] 
+        if index == 0:
+            none_shovel = time_entrance + time_stock- time_shovel
+            time_shovel += none_shovel
+            stock_before= time_stock
+        else:
+            len_add_stock = stock_before - decision_time[index] +time_shovel - time_stock
+            stock_before = time_stock
+            if len_add_stock> 0:
+                delay += len_add_stock
+                idle_p_truck +=len_add_stock
+        init_time_idle = end_time_entrance
+        end_time_idle = init_time_idle+idle_p_truck
+        add_data(connector,cursor, max_id,truck, init_time_idle,end_time_idle,idle_p_truck,\
+            'idle',id_trial, is_sched)
+        max_id+=1
+        init_time_stock = end_time_idle
+        end_time_stock =init_time_stock + time_stock -time_to_load
+        add_data(connector,cursor, max_id,truck, init_time_stock,end_time_stock,\
+            time_stock -time_to_load,'tostock',id_trial, is_sched)
+        max_id+=1
+        init_time_load = end_time_stock
+        end_time_load =init_time_load + time_to_load
+        add_data(connector,cursor, max_id,truck, init_time_load,end_time_load,\
+            time_to_load,'loading',id_trial, is_sched)
+        max_id+=1
+        init_time_end = end_time_load
+        end_time_end = init_time_end+time_end
+        add_data(connector,cursor, max_id,truck, init_time_end,end_time_end,\
+             time_end,'toscale',id_trial, is_sched)
+        max_id+=1
+
+    return delay  
