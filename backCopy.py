@@ -47,7 +47,6 @@ class Dbreader:
         self.stockpileinfo = pd.read_sql_query('SELECT *\
              FROM StockpileInfo INNER JOIN\
             FixedLocations ON FixedLocations.id = StockpileInfo.stockid',self.connector)
-        print(self.stockpileinfo)
         self.palette_piles = sns.color_palette("viridis",n_colors=len(self.customer_req)+1)
         self.palette_customer = sns.color_palette("husl",n_colors=len(self.customer_req))
         self.palette_shovel = sns.color_palette("coolwarm",n_colors=len(self.customer_req))
@@ -232,7 +231,6 @@ def shape_matrixmom_delay(dictionary, decision_time,decision_time_sum,odb=False)
         else 0 for ind,x in enumerate(decision_time_sum)]
     delay+= sum(decisor_time_all)
     stock_before = 0
-    print(delay)
     for index, key in enumerate(dictionary):
         customer_data = dictionary[key]
         #lastpointentrance
@@ -273,6 +271,7 @@ def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initi
     delay = 0
     decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0 \
         else 0 for ind,x in enumerate(decision_time_sum)]
+    print(decisor_time_all)
     delay+= sum(decisor_time_all)
     stock_before = 0
     max_id = get_max_id(cursor)+1
@@ -280,9 +279,12 @@ def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initi
     #dict_delay_sec[where+str(i)] = 
     #       [time_to_entrance, time_to_stock_sec,time_to_end,time_travel_shovel_sec]
     print('issssschedddddd'+str(is_sched))
+    print(dictionary)
     for index, key in enumerate(dictionary):
         idle_p_truck = 0
+        ido_key = int(key[-2])
         truck = c_order[index]
+        print(truck)
         customer_data = dictionary[key]
         #recording time to entrance + idles
         time_entrance =customer_data[0]
@@ -292,6 +294,7 @@ def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initi
             time_entrance,'toentrance',id_trial, is_sched)
         max_id+=1
         idle_p_truck += decisor_time_all[index]
+        print(idle_p_truck)
         time_entrance+= int(decision_time_sum[index]) +decisor_time_all[index]
         time_stock =customer_data[1] 
         time_end =customer_data[2]
@@ -307,6 +310,7 @@ def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initi
             if len_add_stock> 0:
                 delay += len_add_stock
                 idle_p_truck +=len_add_stock
+                print(idle_p_truck)
         init_time_idle = end_time_entrance
         end_time_idle = init_time_idle+idle_p_truck
         add_data(connector,cursor, max_id,truck, init_time_idle,end_time_idle,idle_p_truck,\
@@ -326,6 +330,10 @@ def fill_db(connector, cursor, dictionary, decision_time,decision_time_sum,initi
         end_time_end = init_time_end+time_end
         add_data(connector,cursor, max_id,truck, init_time_end,end_time_end,\
              time_end,'toscale',id_trial, is_sched)
+        max_id+=1
+        add_data(connector,cursor, max_id,truck, end_time_end,end_time_end+5,\
+             5,'outside',id_trial, is_sched)
+        max_id+=1
         max_id+=1
 
     return delay  

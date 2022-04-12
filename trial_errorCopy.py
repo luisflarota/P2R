@@ -43,7 +43,7 @@ N_Simulations = 3
 odb_y = True
 fillodb = True
 #schedule
-schedule= True
+schedule= False
 title_ifsched = 'FIFO - '
 if schedule:
     title_ifsched = 'Scheduled - '
@@ -74,7 +74,8 @@ if odb_y:
     time_taken = [int(math.ceil(dat/loader_payload)) for i,dat in enumerate(truck_capacity)]
     c_order = list(dbreader.customer_req['truck'])
     decision_time_sum = [sum(decision_time[:i+1]) for i in range(len(decision_time)) if i<len(decision_time)]
-    dict_to_dec = {key+'_'+str(val):(val,val_s) for key,val,val_s in zip(to_w,decision_time, decision_time_sum)}
+    dict_to_dec = {key+'_'+str(val):(val,val_s,tru,tcap) for \
+        key,val,val_s,tru,tcap in zip(to_w,decision_time, decision_time_sum,c_order,truck_capacity)}
     to_master = to_w
     to_master_text = list(k for k in dict_to_dec)
     to_w_m = to_master_text
@@ -118,7 +119,8 @@ if not odb_y:
     to_w =[set_of_stocks[np.random.randint(0, len(set_of_stocks))] for i in range(N_Simulations)]
     c_order =['C'+str(i) for i in range(N_Simulations)]
     
-    dict_to_dec = {key+'_'+str(val):(val,val_s) for key,val,val_s in zip(to_w,decision_time, decision_time_sum)}
+    dict_to_dec = {key+'_'+str(val):(val,val_s,tru,tcap) for \
+        key,val,val_s,tru,tcap in zip(to_w,decision_time, decision_time_sum,c_order,truck_capacity)}
     to_master = to_w
     to_master_text = list(k for k in dict_to_dec)
     to_w_m = to_master_text
@@ -133,6 +135,7 @@ if schedule:
         assignment=[y.split('_')[0] for y in x]
         decision_time = [dict_to_dec[dest][0] for dest in  x]
         decision_time_sum = [dict_to_dec[dest][1] for dest in x]
+        truck_capacity = [dict_to_dec[dest][3] for dest in x]
         diff_sum = np.diff(np.array(decision_time_sum))
         decision_time = [0]+[x if x >0 else 0 for x in diff_sum]
         delay_each = input_opt(assignment, SHOVEL_NODE, decision_time, decision_time_sum,\
@@ -142,12 +145,18 @@ if schedule:
         delay.append(delay_each)
     min_d = min(delay)
     arg_min = np.argwhere(np.array(delay)==min_d)
+    print(arg_min)
     #help with annotations
     to_w_m = permutation[arg_min[0][0]]
+    print(to_w_m)
     #print(to_w_m)
     decision_time_sum = [dict_to_dec[tim][1] for tim in to_w_m]
+    print(dict_to_dec)
+    c_order = [dict_to_dec[tim][2] for tim in to_w_m]
+    print(c_order)
     diff_sum = np.diff(np.array(decision_time_sum))
     decision_time = [0]+[x if x >0 else 0 for x in diff_sum]
+    truck_capacity = [dict_to_dec[tim][3] for tim in to_w_m]
     to_w=[y.split('_')[0] for y in to_w_m]
 fig, (ax, ax1) = plt.subplots(1,2,figsize=(15,7))
 
@@ -166,7 +175,9 @@ down,up = ax.get_ylim()
 dict_discretize = dict()
 dict_delay_sec = dict()
 #print(nodes_master)
+print(to_w_m)
 for index_ind, datos in enumerate(to_w_m):
+    print('camion'+c_order[index_ind])
     where = from_w[index_ind]
     to_text = to_w_m[index_ind]
     to = to_text.split('_')[0]
@@ -198,6 +209,7 @@ for index_ind, datos in enumerate(to_w_m):
     points_stock = np.concatenate((points_stock,extra_load)).tolist()
     #print(time_to_stock,points_stock.shape)
     #path, nodes, time - scale
+    print('end'+str(to)+str(end))
     path_to_end =  Dijkstra(graph,val_to_w, val_end)
     nodes_end = path_to_end[1]
     time_to_end = int(math.ceil(path_to_end[2]/truck_velocity))
@@ -216,21 +228,14 @@ for index_ind, datos in enumerate(to_w_m):
 
     if points_shovel.shape[0] == 0:
         points_shovel = np.array([nodes[nodes_shovel[0]]])
-        print(points_shovel)
     extra_shovel = np.array([list(points_shovel[-1]) for x in range(time_to_load)])
     points_shovel = np.concatenate((points_shovel,extra_shovel))
     points_shovel = points_shovel.tolist()
-    #print(time_travel_shovel,points_shovel.shape)
-    # points_toentrance = interpolate_3(nodes, shortest_toentrace, TIME_INTERVAL, truck_velocity)
-    # points_customer_shortest =interpolate_3(nodes, shortest_path, TIME_INTERVAL, truck_velocity)
-    # points_customer_end = interpolate_3(nodes, shortest_end, TIME_INTERVAL, truck_velocity)
-    # points_shovel_shortest = interpolate_3(nodes, shovel_path, TIME_INTERVAL, loader_velocity)
     SHOVEL_NODE = val_to_w
     i= [index for index,dat in enumerate(to_master_text) if to_master_text[index]==to_text]
     dict_discretize[where+str(i)] = [points_entrance,points_stock,points_end,\
         points_shovel,time_travel_shovel]
-    dict_delay_sec[where+str(i)] = [time_to_entrance, time_to_stock_sec,
-    time_to_end,time_travel_shovel_sec,time_to_load_sec]
+    dict_delay_sec[where+str(i)] = [time_to_entrance, time_to_stock_sec,time_to_end,time_travel_shovel_sec,time_to_load_sec]
 
 delay_master =  int(shape_matrixmom_delay(dict_delay_sec, decision_time,\
     decision_time_sum,odb=odb_y))
