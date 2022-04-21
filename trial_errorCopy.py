@@ -4,6 +4,7 @@ import sqlite3
 from itertools import count, permutations
 
 import cv2
+import time
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -389,9 +390,9 @@ def animate(i):
 
 ani = animation.FuncAnimation(fig, animate, init_func = ini,frames = 500, 
                                 interval = 0.1, repeat=False ,cache_frame_data =True)
-# time_n = time.time()
-# ani.save(str(int(time_n))+'_sim_'+str(N_Simulations)+'_sched_'+str(schedule) +'_odb_'+\
-#        str(odb_y)+'.mp4')
+time_n = time.time()
+ani.save(str(int(time_n))+'_sim_'+str(N_Simulations)+'_sched_'+str(schedule) +'_odb_'+\
+        str(odb_y)+'.mp4')
 plt.show()
 #f = "C:/Users/101114992/Documents/Research/98Coding/animation.mp4" 
 #writermp4 = animation.FFMpegWriter(fps=1000) 
