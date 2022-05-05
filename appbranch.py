@@ -43,8 +43,9 @@ columns_valid = ['ID', 'Company Name', 'Truck ID', 'Material', 'Tonnage', 'Date'
 
 
 @st.experimental_memo
-def return_fileuploader(data_customer):
-    data = pd.read_excel(data_customer)
+def return_fileuploader(datarequired, datamissed):
+    data = datarequired
+    datamissed = datamissed
     connect = gspread.service_account_from_dict({
             "type": "service_account",
             "project_id": "p2rsheet",
@@ -58,8 +59,7 @@ def return_fileuploader(data_customer):
             "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/myp2rproject%40p2rsheet.iam.gserviceaccount.com"
             })
     sh = connect.open('P2RData')
-
-    connect_back = Cust_Reader(sh, data,'last_nodeshovel_1.csv')
+    connect_back = Cust_Reader(sh, data,datamissed,'last_nodeshovel_1.csv')
     data_ani= 0
     if connect_back.requirement.shape[0]>0:
         data_ani = connect_back.get_data_animation()
