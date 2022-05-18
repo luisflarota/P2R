@@ -25,7 +25,6 @@ import plotly.graph_objects as go
 import pytz
 import scipy as sp
 import seaborn as sns
-from sqlalchemy import LABEL_STYLE_DISAMBIGUATE_ONLY
 import streamlit as st
 import streamlit.components.v1 as components
 #from celluloid import Camera
@@ -48,7 +47,11 @@ columns_valid = ['ID', 'Company Name', 'Truck ID', 'Material', 'Tonnage', 'Date'
 
 fixed = {'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
             'stock3':'f1','stock4':'g3','stock5':'h2','stock6':'k3',
-            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c24'}
+            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c25'}
+#for new recruiters
+colors_f = {'start': '#f6fa00','entrance':'#f6fa00','stock1':'b','stock2':'b',
+            'stock3':'b','stock4':'b','stock5':'b','stock6':'b',
+            'stock7':'b','stock8':'b', 'scale':'b', 'end':'b'}
 stocks = {k:v for k,v in fixed.items() if 'stock' in k}
 list_stocks = [k for k in stocks]
 
@@ -71,17 +74,35 @@ def give_image(file):
     plt.gca().set_aspect('equal', adjustable='box')
     #plt.scatter(coordinates[:,0],coordinates[:,1], s=2)
     for key in nodes:
-        plt.text(nodes[key][0],nodes[key][1], key, fontsize=3)
+        if 'a' in key:
+            color_seg = '#f6fa00'
+        else:
+            color_seg = '#bdfffb'
+        
+        #plt.text(nodes[key][0],nodes[key][1], key, fontsize=3, c = color_seg)
     for key,values in fixed.items():
         #plt.text(nodes[values][0],nodes[values][1]+30, key, fontsize=8, color='blue')
-        plt.scatter(nodes[values][0],nodes[values][1], s=10,c='b')
-        plt.annotate(key,xy=(nodes[values][0],nodes[values][1]), xytext=(nodes[values][0]+40,nodes[values][1]+35), 
-                        arrowprops=dict(arrowstyle='->', lw=1, color='blue'),fontsize=7) 
+        color_si = colors_f[key]
+        if 'a' in values:
+            color_seg = '#f6fa00'
+        else:
+            color_seg = '#00fff7'
+        plt.scatter(nodes[values][0],nodes[values][1], s=10,c=color_seg)
+        plt.annotate(key,xy=(nodes[values][0],nodes[values][1]), xytext=(nodes[values][0]+40,nodes[values][1]+20), 
+                        arrowprops=dict(arrowstyle='->', lw=1, color=color_si),
+                        fontsize=7, color = color_seg) 
+    print(new_out)
     for segment in np.unique(new_out['seg']):
+        
+        sampil = ''.join(list(np.unique(new_out[new_out['seg']==segment]['node'])))
+        print(sampil)
         sample = np.array(new_out[new_out['seg']==segment][['x','y']])
+        color_seg = '#00fff7'
+        if sampil.count('a') >2:
+            color_seg = '#f6fa00'
         for x1, x2 in zip(sample[:-1],sample[1:]):
             plt.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
-                arrowstyle='->', linestyle="--", lw=1, color='#ccffe7')) 
+                arrowstyle='->', linestyle="--", lw=1, color=color_seg)) 
     return fig
    #st.pyplot(fig)
    

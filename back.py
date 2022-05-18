@@ -195,7 +195,7 @@ def subtourelim(model,where):
 class getNodes:
     def __init__(self, nodes_file):
         self.node_file = pd.read_csv(nodes_file)
-        self.image = 'Pete_big.jpg'
+        self.image = 'Pete_big.png'
     def read_csv_2(self):
         """
         This function deletes interpolation before building the graph. 
