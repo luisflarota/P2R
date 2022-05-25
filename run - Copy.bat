@@ -1,1 +1,0 @@
-"C:\Users\101114992\Documents\Research\catlab\Scripts\python.exe" -m streamlit run "C:\Users\101114992\Documents\Research\98Coding\00coderepo\app.py"

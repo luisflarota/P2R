@@ -1,264 +1,35 @@
-import ast
 import datetime
-from decimal import MIN_ETINY
 import itertools
 import math
-import re
-import sched
 import string
-import sys
-import time
-from datetime import date, time
-from io import BytesIO
-from itertools import combinations
 
 import cv2
-import gspread
-import gurobipy as gp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from simplejson import load
-import streamlit as st
-import xlsxwriter
-from cv2 import add
-from gurobipy import GRB
-from IPython.display import Image
-from PIL import Image
 
 from back import *
 from utils import *
 
 
-def conv_custom_truck(ini_dict, muestra, materials):
-    muestra_n = np.array(muestra)
-    new_dict = {}
-    new_dict['dummy']= [0,0,0]
-    for t in ini_dict:
-        if t in muestra_n[:,0]:
-            st = [muestra_n[muestra_n[:,0] == t][0][1]]
-        else:
-            st = [st for st in materials if materials[st] == ini_dict[t][0]]
-        new_dict[t]= st + ini_dict[t][1:]
-    return new_dict
-
-
-# Given a tuplelist of edges, find the shortest subtour
-
-
-def summation_if_arrival(i,j,truck_sumation_time):
-    if truck_sumation_time[i] >= truck_sumation_time[j]:
-        return 0
-    else:
-        return truck_sumation_time[j]-truck_sumation_time[i]
-    
-def summation_if_sum(i,j,truck_sumation_time):
-    if truck_sumation_time[i] >= truck_sumation_time[j]:
-        return truck_sumation_time[i] - truck_sumation_time[j]
-    else:
-        return 0
-def time_(i,j,truck_sumation_time,truck_tostock_time,shovel_sttost):
-    if i == 'dummy' or j == 'dummy':
-        return 0
-    else:
-        #print(i,j,truck_tostock_time[i],summation_if_arrival(i,j,truck_sumation_time),
-         #    shovel_sttost[i,j],truck_tostock_time[j])
-        res = truck_tostock_time[i]-summation_if_arrival(i,j,truck_sumation_time)+shovel_sttost[i,j]-truck_tostock_time[j] 
-        if res <0:
-            return 0 + summation_if_sum(i,j,truck_sumation_time)
-        else:
-            return res + summation_if_sum(i,j,truck_sumation_time)
-def scheduling(requirements,materials):
-    call_class = getNodes('new_nodes.csv')
-    data = call_class.read_csv_2()
-    graph = data[2]
-    convert_kmh_msec = 0.28
-    truck_velocity = 20 * convert_kmh_msec
-    fixed = {'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
-            'stock3':'f1','stock4':'g3','stock5':'h2','stock6':'k3',
-            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c24'}
-    loaders_times = {'loader':[10*0.28, 12, 30],
-                'hopper': [5, 1],
-                'excav':[3*0.28, 12, 20]}
-    stocks = {k:v for k,v in fixed.items() if 'stock' in k}
-    requirement = requirements
-    requirement['Date']= requirement.apply(
-                        lambda r : datetime.datetime.combine(r['Date'],r['Time']),1)
-    requirement['Epoch'] = (requirement['Date']
-            - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
-    requirement['Epoch'] = requirement['Epoch'] + 6*3600
-    requirement = requirement.sort_values('Epoch')
-    min_t= min(requirement['Epoch'])
-    requirement['dect'] = np.diff([min_t]+list(requirement['Epoch']))
-    for loader in np.unique(requirement['TypeLoader']):
-        data_m = requirement[requirement['TypeLoader'] == loader]
-        if loader == 'hopper':
-            scheds[loader] = data_m['Truck']
-        else:
-            print(loader)
-            shovel_velocity = loaders_times[loader][0]
-            shovel_payload = loaders_times[loader][1]
-            shovel_cycletime = loaders_times[loader][2]
-            scheds = {}
-            cust_req = {x[2]:[x[3],x[10], x[6]]   for x in np.array(data_m)}
-            global trucks
-            trucks = list(cust_req.keys())
-            n = len(trucks)
-            dict_iterac = {truck:list(data_m[data_m['Truck'] == truck]['Dest'])[0] for truck in np.unique(data_m['Truck'])}
-            keys, values = zip(*dict_iterac.items())
-            permutations_dicts = [list(zip(keys, v)) for v in itertools.product(*values)]
-            print(permutations_dicts)
-            for perm_d in permutations_dicts:
-                new_ct = conv_custom_truck(cust_req, perm_d, materials)
-                sorted_times = {key:new_ct[key][1] for i,key in  enumerate(new_ct)}
-                sorted_times = dict(sorted(sorted_times.items(), key=lambda item: item[1]))
-                new_ct = {key: new_ct[key]  for key in sorted_times}
-                # List of stocks for the trucks coming
-                stock_assigned = np.array(list(new_ct.values()), dtype=object)[:,0]
-                # Index trucks based on stocks: {stok: truck, tonnage}
-                #print(n)
-                #duration for each surgery in minutes
-                truck_destination = {k:v[0] for k,v in new_ct.items() if k != 'dummy'}
-                truck_arrival_time = {k:v[1] for k,v in new_ct.items() if k != 'dummy'}
-                truck_sumation_time ={k:sum(list(truck_arrival_time.values())[:(ind)]) for 
-                                            ind,k in enumerate(new_ct) if k != 'dummy'}
-                truck_tostock_time = {k: round(
-                    float(Dijkstra(graph,fixed['entrance'],
-                                fixed[new_ct[k][0]])[2])/truck_velocity) + int(
-                    math.ceil(new_ct[k][2]/shovel_payload)*shovel_cycletime)
-                                    for k,v in new_ct.items() if k != 'dummy'}
-                truck_toload_time = {k: int(math.ceil(new_ct[k][2]/shovel_payload)*shovel_cycletime)
-                                    for k,v in new_ct.items() if k != 'dummy'}
-                set_stocks = list(set([v[0] for k,v in new_ct.items() if k != 'dummy']))
-                perm = [p for p in itertools.product(set_stocks, repeat=2)]
-                shovel_sttost = {(tr1,tr2): round(
-                    float(Dijkstra(graph,fixed[new_ct[tr1][0]]
-                                ,fixed[new_ct[tr2][0]])[2])/shovel_velocity + int(
-                    math.ceil(new_ct[tr2][2]/shovel_payload)*shovel_cycletime)) for 
-                                tr1 in trucks for tr2 in trucks if  tr1 != tr2 and 'dum' not in tr1 and 'dum' not in tr2}
-                truck_times = {(tr1,tr2): time_(tr1,tr2,truck_sumation_time, truck_tostock_time,shovel_sttost) for tr1 in trucks for tr2 in trucks if  tr1 != tr2}
-                #truck_times = {(tr1,tr2): time(tr1,tr2,truck_sumation_time) for tr1,tr2 in combinations(trucks,2)}
-                m = gp.Model()
-                # Variables: is ttuck 'i' adjacent to truck 'j' on the tour?
-                vars = m.addVars(truck_times.keys(), obj=truck_times, vtype=GRB.BINARY, name='x')
-                # Constraints: two edges incident to each ti tj
-
-
-                m.addConstrs(vars.sum(c,'*') == 1 for c in trucks)
-                m.addConstrs(vars.sum('*',c) == 1 for c in trucks)    
-
-                #cons = m.addConstrs(vars.sum(c, '*') == 2 for c in trucks)
-                m.Params.LogToConsole = 0
-
-                m._vars = vars
-                m.Params.lazyConstraints = 1
-                m.optimize(subtourelim)
-
-                vals = m.getAttr('x', vars)
-                selected = gp.tuplelist((i, j) for i, j in vals.keys() if vals[i, j] > 0.5)
-
-                tour = subtour(selected)
-                print(tour)
-                scheds[tuple(perm_d)] = [tour, m.getObjective().getValue()]
-                print(scheds)
-            minval = min(np.array(list(scheds.values()),dtype=object)[:,1])
-            res = [[perm_d,v[0]] for k, v in scheds.items() if v[1]==minval]
-            st.write(loader, list(res[0][0]), list(res[0][1]))
-def subtour(edges):
-    unvisited = trucks[:]
-    cycle = trucks[:] # Dummy - guaranteed to be replaced
-    while unvisited:  # true if list is non-empty
-        thiscycle = []
-        neighbors = unvisited
-        while neighbors:
-            current = neighbors[0]
-            thiscycle.append(current)
-            unvisited.remove(current)
-            neighbors = [j for i, j in edges.select(current, '*')
-                         if j in unvisited]
-        if len(thiscycle) <= len(cycle):
-            cycle = thiscycle # New shortest subtour
-    return cycle
-def subtourelim(model,where):
-    if where == GRB.Callback.MIPSOL:
-        # make a list of edges selected in the solution
-        vals = model.cbGetSolution(model._vars)
-
-        selected = gp.tuplelist((i, j) for i, j in model._vars.keys()
-                             if vals[i, j] > 0.5)
-        tour = subtour(selected)
-        if len(tour) < len(trucks):
-            # add subtour elimination constr. for every pair of cities in subtour
-            model.cbLazy(gp.quicksum(model._vars[i,j] + model._vars[j,i] for i, j in combinations(tour, 2))
-                         <= len(tour)-1)
-class getNodes:
-    def __init__(self, nodes_file):
-        self.node_file = pd.read_csv(nodes_file)
-        self.image = 'Pete_big.png'
-    def read_csv_2(self):
-        """
-        This function deletes interpolation before building the graph. 
-        Thus, graph gets built with main points. That way we decrease
-        computational time when performing Djikstra A.
-        **input: (1) rawdata(.csv)            : csvfile from VGG, contains the coordinates in pixels
-                (2) location_p(dict)         : key=fixed locations and values=coordinates in pix
-                (3) file_picture_name(.png)  : name of the png file (.png included). This is needed because the 
-        csv file from VGG comes with it.
-
-        **output:(0) new_out(df)             : plot direction of segments
-                (1) nodes(dict)             : dict of nodes with xy coordinates
-                (2) graph(dict)             : graph that contains routes (nodes and edges)
-                (3) nodes_loc(dict)         : {name: node} of fixed location
-                (4) location_p(dict)        : {name_fixed_location: coordinates}
-                (5) set_of_stocks (list)    : name of the stocks
-            """         
-        segment, points = filter_data(self.node_file,'PeteLien_bigger.png')
-        out = delete_doubles(segment)
-        letter = string.ascii_lowercase
-        letter = list(letter)
-        nodes = {}
-        new_out =[]
-        for let_i, segment in enumerate(np.unique(out[:,2])):
-            let = letter[let_i]
-            data_segm =out[out[:,2]==segment]
-            for seg_i,c_data_segm in enumerate(data_segm):
-                val_data_segm = list(c_data_segm[:2])
-                if val_data_segm in nodes.values():
-                    x = [k for k,v in nodes.items() if v == val_data_segm]
-                    new_out.append(list(data_segm[seg_i])+[x[0]])
-                    continue
-                nodes[let+str(seg_i)] = val_data_segm
-                new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
-        new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
-        graph ={}
-        for seg_n in np.unique(new_out['seg']):
-            data_seg_out = np.array(new_out[new_out['seg']== seg_n])
-            for i_dato in range(data_seg_out.shape[0]-1):
-                bef_p = data_seg_out[i_dato][:2]
-                node_bef = find_key(bef_p, nodes)
-                aft_p = data_seg_out[i_dato+1][:2]
-                node_aft = find_key(aft_p, nodes)
-                if node_aft == node_bef:
-                    continue
-                name_node =node_bef+node_aft
-                if node_bef not in graph:
-                    graph[node_bef] = list()
-                res_bef_aft  = aft_p-bef_p
-                distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
-                graph[node_bef].append((node_aft, distance))
-        # nodes_loc = {key_lp:node_lp for key_lp in self.fixedloc for
-        #      node_lp in nodes if self.fixedloc[key_lp] == nodes[node_lp]}
-        return new_out, nodes, graph#, nodes_loc
-    
-
 class Cust_Reader:
-    def __init__(self, connect_v,cust_req,cust_noreq, nodescsv, interval = 5):
+    def __init__(self, connect_v,cust_req,cust_noreq, nodescsv,shovelnode, schedule, interval = 5):
+        self.value_stocks = 5000
+        self.fixed = {'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
+            'stock3':'f1','stock4':'g3','stock5':'h2','stock6':'k3',
+            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c25'}
+        self.colors_f = {'start': '#f6fa00','entrance':'#f6fa00','stock1':'b','stock2':'b',
+                    'stock3':'b','stock4':'b','stock5':'b','stock6':'b',
+                    'stock7':'b','stock8':'b', 'scale':'b', 'end':'b'}
+        self.setstocks = {k:v for k,v in self.fixed.items() if 'stock' in k}
+        self.list_stocks = [k for k in self.fixed]
         self.noreq = cust_noreq
         self.nodescsv = pd.read_csv(nodescsv)
         self.cust_req = cust_req
         self.interpolator = interval
         self.sh = connect_v
+        self.schedule = schedule
         self.entrance ='entrance'
         self.end = 'scale'
         self.add_sched = 0
@@ -267,7 +38,7 @@ class Cust_Reader:
         self.loader_payload = 12 
         self.loader_cycletime = 5
         self.loader_velocity = 8 * convert_met_sec#8km
-        self.fixedloc_ini = self.sh.worksheet('FixedLoc').get_all_records()
+        #self.fixedloc_ini = self.sh.worksheet('FixedLoc').get_all_records()
         self.custereq_ini = self.sh.worksheet('CustomerReq').get_all_records()
         self.stockpile_ini = self.sh.worksheet('StockInfo').get_all_records()
         self.customer_status = self.sh.worksheet('CustomerStatus').get_all_records()
@@ -280,40 +51,46 @@ class Cust_Reader:
         self.max_id_stockinfo = 0 
         self.max_id_shovel = 0
         self.max_billing = 0
-        self.stock_tonnage = {}
-        if self.table_shovel.shape[0]>0:
-            self.max_id_shovel = max(self.table_shovel['shovel_id'])
-        if self.table_billing.shape[0]>0:
-            self.max_billing = max(self.table_billing['billing_id'])
-        if self.table_customstatus.shape[0]>0:
-            self.max_id_cust = max(self.table_customstatus['status_id'])
-        if self.table_stockpile_ini.shape[0]>0:
-            stocks_ini = np.unique(self.table_stockpile_ini['stock_name'])
-            for st_ini in stocks_ini:
-                data_sel = self.table_stockpile_ini[self.table_stockpile_ini['stock_name']== st_ini]
-                max_time_sel = max(data_sel['stock_times'])
-                tonnage = float(data_sel[data_sel['stock_times']==max_time_sel]['stock_tonnage'])
-                self.stock_tonnage[st_ini] = tonnage
-            self.max_id_stockinfo = max(self.table_stockpile_ini['stock_id'])
         
+        #self.stock_tonnage = {stock:}
+        # if self.table_shovel.shape[0]>0:
+        #     self.max_id_shovel = max(self.table_shovel['shovel_id'])
+        # if self.table_billing.shape[0]>0:
+        #     self.max_billing = max(self.table_billing['billing_id'])
+        # if self.table_customstatus.shape[0]>0:
+        #     self.max_id_cust = max(self.table_customstatus['status_id'])
+        # if self.table_stockpile_ini.shape[0]>0:
+        #     stocks_ini = np.unique(self.table_stockpile_ini['stock_name'])
+        #     for st_ini in stocks_ini:
+        #         data_sel = self.table_stockpile_ini[self.table_stockpile_ini['stock_name']== st_ini]
+        #         max_time_sel = max(data_sel['stock_times'])
+        #         tonnage = float(data_sel[data_sel['stock_times']==max_time_sel]['stock_tonnage'])
+        #         self.stock_tonnage[st_ini] = tonnage
+        #     self.max_id_stockinfo = max(self.table_stockpile_ini['stock_id'])
+        self.fixedloc = self.fixed
+        self.stock_tonnage = {stock:self.value_stocks for stock in self.setstocks}
+        self.new_out, self.nodes, self.graph, self.nodes_loc = self.read_csv_2()
+        #print(self.nodes)
+        #print(self.nodes_loc)
         self.image = 'Pete_big.jpg'
         # position of each fixed location
-        self.fixedloc = {row['fixed_name']:[row['fixed_x'],row['fixed_y']] for row in self.fixedloc_ini}
-        self.stock_id = {row['fixed_name']: [row['fixed_id'],row['stock_cost_ton']] for row in self.fixedloc_ini if 'stock' in row['fixed_name']}
+        
+        #self.stock_id = {row['fixed_name']: [row['fixed_id'],row['stock_cost_ton']] for row in self.fixedloc_ini if 'stock' in row['fixed_name']}
         # list of stocks
-        self.table_fixedloc = self.info_fixed_loc()
-        self.setstocks = list(self.table_fixedloc[self.table_fixedloc['fixed_type'] == 'stock']['fixed_name'])
-        # location of stockpiles and material
-        self.table_stockpile = self.info_stockpile_ini()
-        self.stockpileinfo = pd.merge(self.table_stockpile,self.table_fixedloc,
-        left_on='stock_stockid',right_on='fixed_id')[self.table_stockpile.columns.to_list()+
-                ['fixed_mat','fixed_x', 'fixed_y']]
-        # info piles in data structure 
+        # self.table_fixedloc = self.info_fixed_loc()
+        # self.setstocks = list(self.table_fixedloc[self.table_fixedloc['fixed_type'] == 'stock']['fixed_name'])
+        # # location of stockpiles and material
+        # self.table_stockpile = self.info_stockpile_ini()
+        # self.stockpileinfo = pd.merge(self.table_stockpile,self.table_fixedloc,
+        # left_on='stock_stockid',right_on='fixed_id')[self.table_stockpile.columns.to_list()+
+        #         ['fixed_mat','fixed_x', 'fixed_y']]
+        # # info piles in data structure 
         self.palette_piles = sns.color_palette("viridis",n_colors=len(self.setstocks)+1)
-        self.loc_piles = self.location_piles()
+        # self.loc_piles = self.location_piles()
          
         #datafinal customer
         self.requirement = self.get_requirement()
+        
         if self.requirement.shape[0]>0:
             self.palette_customer = sns.color_palette("husl",n_colors=len(self.requirement))
             self.palette_shovel = sns.color_palette("coolwarm",n_colors=len(self.requirement))
@@ -326,28 +103,35 @@ class Cust_Reader:
             self.decision_time = np.diff([self.min_dectime]+list(self.decision_time))
             self.decision_time_sum = [sum(self.decision_time[:i+1]) for i in
                 range(len(self.decision_time)) if i<len(self.decision_time)]
-            self.requirem_combined = pd.merge(self.requirement,self.table_fixedloc,
-            left_on='customer_mat',right_on='fixed_mat')
-            self.requirem_combined = self.requirem_combined.sort_values('customer_timest')
-            #print(self.requirem_combined)
-            self.to_w = self.requirem_combined['fixed_name']
+            #print(self.cust_req)
+            self.to_w = self.requirement['customer_dest']
             self.to_master = self.to_w
             #print(self.to_master)
-            self.new_out, self.nodes, self.graph, self.nodes_loc = self.read_csv_2()
-            self.shovelnode = self.nodes_loc['shovel']
+            
+            self.shovelnode = shovelnode
             self.truck_capacity = list(self.requirement['customer_tonnage'])
             self.c_order = list(self.requirement['customer_truck'])
             self.truck_ton = {self.c_order[i]: self.truck_capacity[i] for i in 
                 range(len(self.c_order))}
-
-            self.dict_to_dec ={key+'_'+str(val):(val,val_s,tru,tcap) for 
+            print('y'*10)
+            print(self.to_w)
+            print(self.decision_time)
+            print(self.decision_time_sum)
+            print(self.c_order)
+            print(self.truck_capacity)
+            self.dict_to_dec ={key+'_'+str(val_s):(val,val_s,tru,tcap) for 
                                 key,val,val_s,tru,tcap in zip(self.to_w,self.decision_time, 
                                     self.decision_time_sum
                                     ,self.c_order,self.truck_capacity)}
             #print(self.dict_to_dec)
             self.to_master_text = list(k for k in self.dict_to_dec)
+            print(self.to_master_text)
             self.to_w_m = self.to_master_text
-            self.shovelnode = self.nodes_loc['shovel']
+            print(self.to_w_m)
+            self.material = list(self.cust_req['Rock'])
+            self.loc_piles = {stock:[self.fixed[stock],self.value_stocks,self.palette_piles[
+            index],self.material[index][:2]] for index,stock in enumerate(self.setstocks)}
+            #self.shovelnode = self.nodes_loc['shovel']
     
     def get_brute_force(self):
         permutation = [x for x in itertools.permutations(self.dict_to_dec)]
@@ -400,10 +184,9 @@ class Cust_Reader:
         self.cust_req['Epoch'] = (self.cust_req['Date']
                 - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
         self.cust_req['Epoch'] = self.cust_req['Epoch'] + 6*3600
-        data_insert = self.cust_req[['ID', 'Company Name', 'Truck ID'
-            , 'Material', 'Tonnage', 'Epoch']]
+        data_insert = self.cust_req[['Id', 'Company', 'Truck', 'Rock', 'Dest', 'Tonnage', 'Epoch']]
         columns_change =['customer_id','customer_name','customer_truck'
-            ,'customer_mat','customer_tonnage','customer_timest']
+            ,'customer_mat','customer_dest','customer_tonnage','customer_timest']
         data_insert.columns = columns_change
 
         data_from_db_customer = self.info_custo_db()
@@ -413,9 +196,11 @@ class Cust_Reader:
                     'customer_tonnage',
                     'customer_timest'],indicator=True,
                          how='outer').query('_merge=="left_only"').drop('_merge', axis=1)
+        
         if data_insert.shape[0]>0: 
             col_sim = data_insert.columns.to_list()
-            data_insert = data_insert[col_sim[:6]].sort_values('customer_timest')
+            data_insert = data_insert[col_sim[:7]].sort_values('customer_timest')
+            #print(data_insert)
             data_insert.columns = columns_change
             self.sh.worksheet('CustomerReq').append_rows(
                 data_insert.values.tolist(),value_input_option="USER_ENTERED"
@@ -423,22 +208,6 @@ class Cust_Reader:
         return data_insert
     
     def read_csv_2(self):
-        """
-        This function deletes interpolation before building the graph. 
-        Thus, graph gets built with main points. That way we decrease
-        computational time when performing Djikstra A.
-        **input: (1) rawdata(.csv)            : csvfile from VGG, contains the coordinates in pixels
-                (2) location_p(dict)         : key=fixed locations and values=coordinates in pix
-                (3) file_picture_name(.png)  : name of the png file (.png included). This is needed because the 
-        csv file from VGG comes with it.
-
-        **output:(0) new_out(df)             : plot direction of segments
-                (1) nodes(dict)             : dict of nodes with xy coordinates
-                (2) graph(dict)             : graph that contains routes (nodes and edges)
-                (3) nodes_loc(dict)         : {name: node} of fixed location
-                (4) location_p(dict)        : {name_fixed_location: coordinates}
-                (5) set_of_stocks (list)    : name of the stocks
-            """         
         segment, points = filter_data(self.nodescsv,'PeteLien_bigger.png')
         out = delete_doubles(segment)
         letter = string.ascii_lowercase
@@ -474,7 +243,7 @@ class Cust_Reader:
                 distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
                 graph[node_bef].append((node_aft, distance))
         nodes_loc = {key_lp:node_lp for key_lp in self.fixedloc for
-             node_lp in nodes if self.fixedloc[key_lp] == nodes[node_lp]}
+             node_lp in nodes if self.fixedloc[key_lp] == node_lp}
         return new_out, nodes, graph, nodes_loc
     
     def get_map(self):
@@ -529,7 +298,6 @@ class Cust_Reader:
         list_a = pd.DataFrame(list_a, columns = ['Ini_Point', 'End_Point','Dist.(px.)'])
         list_b = pd.DataFrame(list_b, columns = ['Ini_Point', 'End_Point','Dist.(px.)'])
         return list_a, list_b
-
     def location_piles(self):   
         loc_piles_info = {}
         for index, stock in enumerate(np.unique(self.stockpileinfo['stock_name'])):
@@ -545,6 +313,8 @@ class Cust_Reader:
         self.dict_discretize = dict()
         self.dict_delay_sec = dict()
         SHOVEL_NODE = self.shovelnode
+        print('x'*50)
+        print(self.to_w_m)
         if self.requirement.shape[0]:
             #print(self.to_w_m)
             for index_ind, datos in enumerate(self.to_w_m):
@@ -625,7 +395,7 @@ class Cust_Reader:
         self.sh.worksheet('CustomerStatus').append_rows(
                 datarows,value_input_option="USER_ENTERED"
             )
-    def shape_matrixmom_delay(self, add_db = True):
+    def shape_matrixmom_delay(self, add_db = False):
         delay = 0
         customer = np.unique(self.requirement['customer_name'])[0]
         decisor_time_all = [(self.decision_time_sum[ind-1]-self.decision_time_sum[ind]) 
@@ -729,10 +499,11 @@ class Cust_Reader:
                 list_bill.append([self.max_billing,customer,truck_db, self.truck_ton[truck_db],
                     int(self.truck_ton[truck_db]*price), int(end_time_end+10),'paid', int(self.sched)])
                 #self.add_data_billing(self.max_billing,customer,truck_db, self.truck_ton[truck_db],100, end_time_end+5, self.sched)
-        self.add_data(list_custstatus)
-        self.add_data_billing(list_bill)
-        self.add_data_shovel(list_shovel)
-        self.add_data_stock(list_stock)
+        #Should be updated!
+        # self.add_data(list_custstatus)
+        # self.add_data_billing(list_bill)
+        # self.add_data_shovel(list_shovel)
+        # self.add_data_stock(list_stock)
         return int(delay)  
 
     def shape_matrixmom_sec_newmet(self):
@@ -869,44 +640,90 @@ class Cust_Reader:
             change_stockpiles[(self.to_w[index], index)] = len(to_entrance+to_stock)
         return matrix_for_customer, matrix_for_shovel, costumer_palette,large,change_stockpiles
 
+##
+class getNodes:
+    def __init__(self, nodes_file):
+        self.node_file = pd.read_csv(nodes_file)
+        self.image = 'Pete_big.png'
+    def read_csv_2(self):       
+        segment, points = filter_data(self.node_file,'PeteLien_bigger.png')
+        out = delete_doubles(segment)
+        letter = string.ascii_lowercase
+        letter = list(letter)
+        nodes = {}
+        new_out =[]
+        for let_i, segment in enumerate(np.unique(out[:,2])):
+            let = letter[let_i]
+            data_segm =out[out[:,2]==segment]
+            for seg_i,c_data_segm in enumerate(data_segm):
+                val_data_segm = list(c_data_segm[:2])
+                if val_data_segm in nodes.values():
+                    x = [k for k,v in nodes.items() if v == val_data_segm]
+                    new_out.append(list(data_segm[seg_i])+[x[0]])
+                    continue
+                nodes[let+str(seg_i)] = val_data_segm
+                new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
+        new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
+        graph ={}
+        for seg_n in np.unique(new_out['seg']):
+            data_seg_out = np.array(new_out[new_out['seg']== seg_n])
+            for i_dato in range(data_seg_out.shape[0]-1):
+                bef_p = data_seg_out[i_dato][:2]
+                node_bef = find_key(bef_p, nodes)
+                aft_p = data_seg_out[i_dato+1][:2]
+                node_aft = find_key(aft_p, nodes)
+                if node_aft == node_bef:
+                    continue
+                name_node =node_bef+node_aft
+                if node_bef not in graph:
+                    graph[node_bef] = list()
+                res_bef_aft  = aft_p-bef_p
+                distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
+                graph[node_bef].append((node_aft, distance))
+        # nodes_loc = {key_lp:node_lp for key_lp in self.fixedloc for
+        #      node_lp in nodes if self.fixedloc[key_lp] == nodes[node_lp]}
+        return new_out, nodes, graph#, nodes_loc
 
-def to_excel(materials):
-    today = date.today()
-    year = today.year
-    month = today.month
-    day = today.day
-    output = BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet()
-
-    worksheet.write('A1', 'ID')
-    worksheet.write('B1', 'Company Name')
-    worksheet.write('C1', 'Truck ID')
-    worksheet.write('D1', 'Material')
-    worksheet.data_validation('$D$2:$D$8', {'validate': 'list',
-                                  'source': list(set(materials))})
-
-    worksheet.write('E1', 'Tonnage')
-    worksheet.write('F1', 'Date') 
-    #worksheet.write_comment('F1', 'Format: YY/MM/DD')
-    worksheet.data_validation('$F$2:$F$20', {'validate': 'date',
-                                    'criteria': 'between',
-                                    'minimum': date(year, month, day),
-                                    'maximum': date(year, 12, 31),
-                                    'input_title': 'Enter date. Format:',
-                                  'input_message': 'YY/MM//DD',
-                                  'error_title': 'Input value not valid!',
-                                  'error_message': 'Insert in a correct format or valid date'
-                                    })
-    worksheet.write('G1', 'Time')
-    worksheet.data_validation('$G$2:$G$20', {'validate': 'time',
-                                    'input_title': 'Enter time. Format:',
-                                    'criteria': 'between',
-                                  'minimum': time(9, 0,0),
-                                  'maximum': time(17, 0,0),
-                                  'input_message': 'hh:mm:ss',
-                                  'error_title': 'Input value not valid!',
-                                  'error_message': 'Insert in a correct format or valid time'
-                                    })
-    workbook.close()
-    return output
+def give_image(file, fixed, colors_f):
+    hola = getNodes(file)
+    info_nodes = hola.read_csv_2()
+    nodes = info_nodes[1]
+    new_out = info_nodes[0]
+    coordinates = np.array(list(nodes.values()))
+    reading_ima = cv2.imread(hola.image)
+    fig = plt.figure()
+    plt.imshow(reading_ima)
+    plt.gca().set_aspect('equal', adjustable='box')
+    #plt.scatter(coordinates[:,0],coordinates[:,1], s=2)
+    for key in nodes:
+        if 'a' in key:
+            color_seg = '#f6fa00'
+        else:
+            color_seg = '#bdfffb'
+        
+        #plt.text(nodes[key][0],nodes[key][1], key, fontsize=3, c = color_seg)
+    for key,values in fixed.items():
+        #plt.text(nodes[values][0],nodes[values][1]+30, key, fontsize=8, color='blue')
+        color_si = colors_f[key]
+        if 'a' in values:
+            color_seg = '#f6fa00'
+        else:
+            color_seg = '#00fff7'
+        plt.scatter(nodes[values][0],nodes[values][1], s=10,c=color_seg)
+        plt.annotate(key,xy=(nodes[values][0],nodes[values][1]), xytext=(nodes[values][0]+40,nodes[values][1]+20), 
+                        arrowprops=dict(arrowstyle='->', lw=1, color=color_si),
+                        fontsize=7, color = color_seg) 
+    #print(new_out)
+    for segment in np.unique(new_out['seg']):
+        
+        sampil = ''.join(list(np.unique(new_out[new_out['seg']==segment]['node'])))
+        #print(sampil)
+        sample = np.array(new_out[new_out['seg']==segment][['x','y']])
+        color_seg = '#00fff7'
+        if sampil.count('a') >2:
+            color_seg = '#f6fa00'
+        for x1, x2 in zip(sample[:-1],sample[1:]):
+            plt.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
+                arrowstyle='->', linestyle="--", lw=1, color=color_seg)) 
+    return fig
+   #st.pyplot(fig)

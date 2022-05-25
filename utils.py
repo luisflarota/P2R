@@ -1,8 +1,38 @@
 import ast
-
-import numpy as np
 import math
+from datetime import date, time
+from io import BytesIO
 from operator import itemgetter
+import matplotlib.pyplot as plt
+import numpy as np
+import xlsxwriter
+
+def return_st_material(dict):
+    new_mate = {}
+    for k,v in dict.items():
+        for st in v:
+            new_mate[st] = k
+    return new_mate
+
+   
+def return_ld_stock(for_loader,for_excavators,for_hopper):
+    new_dict = {}
+    for x in for_loader:
+        new_dict[x] = 'loader'
+    for x in for_excavators:
+        new_dict[x] = 'excav'
+    for x in for_hopper:
+        new_dict[x] = 'hopper'
+    return new_dict
+
+
+def change_require(df, schedule):
+    for comb in schedule:
+        truck = comb[0]
+        index = df[df['Truck'] == truck].index
+        df.loc[index,'Dest'] = comb[1]
+        #print(df[df['Truck'] == truck])
+    return df
 
 def get_diference(a,b):
     a = np.array(a)
@@ -11,18 +41,15 @@ def get_diference(a,b):
     distance= np.square(delta)
     return np.sqrt(np.sum(distance))
 
- 
-
+#---------------Dijkstra
+#Start
 def calculateAP(path, graph):
-    #path = ['S','A','B']
-    #len = 3 - 1 = 2
     acumulatedPath = 0
-    
     for position,item in enumerate(path):
         if position < len(path) - 1:
             for k,v in graph.items():
                 if item == k:
-                    expand = dict(v) #[('A',7),('B',2),('C',3)]
+                    expand = dict(v) 
                     acumulatedPath += expand[path[position + 1]]
                     
     return acumulatedPath
@@ -43,8 +70,8 @@ def Dijkstra(graph,start,end):
     
     while queue:
         
-        head = queue[0]  #['S',[c],ca]
-        rest = queue[1:] #[ [n,[c],ca], [n,[c],ca], [n,[c],ca], [n,[c],ca] ]
+        head = queue[0] 
+        rest = queue[1:] 
         
         if head[0] == end:
 
@@ -55,16 +82,17 @@ def Dijkstra(graph,start,end):
             for position,(n,c,v) in enumerate(queue):
                 if n in expand:
                     path = head[1] + [n] 
-                    acumulatedPath = calculateAP(path, graph) #7
+                    acumulatedPath = calculateAP(path, graph) 
                     if acumulatedPath < v:
                         queue[position] = ([n,path,acumulatedPath])
             queue.remove(head)
             queue = sorted(queue,key=itemgetter(2))
-            done.append(head)
-            
+            done.append(head)          
             count += 1
-
     return head
+#End
+#---------------Dijkstra
+
 def shape_matrixmom_delay_out(dictionary, decision_time,decision_time_sum):
     delay = 0
     decisor_time_all = [(decision_time_sum[ind-1]-decision_time_sum[ind]) if (decision_time_sum[ind-1]-decision_time_sum[ind])>=0 and ind>0
@@ -190,3 +218,44 @@ def find_key(val, diction):
     val = list(val)
     x = [k for k,v in diction.items() if v == val]
     return x[0]       
+
+def to_excel(materials):
+    today = date.today()
+    year = today.year
+    month = today.month
+    day = today.day
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet()
+
+    worksheet.write('A1', 'ID')
+    worksheet.write('B1', 'Company Name')
+    worksheet.write('C1', 'Truck ID')
+    worksheet.write('D1', 'Material')
+    worksheet.data_validation('$D$2:$D$8', {'validate': 'list',
+                                  'source': list(set(materials))})
+
+    worksheet.write('E1', 'Tonnage')
+    worksheet.write('F1', 'Date') 
+    #worksheet.write_comment('F1', 'Format: YY/MM/DD')
+    worksheet.data_validation('$F$2:$F$20', {'validate': 'date',
+                                    'criteria': 'between',
+                                    'minimum': date(year, month, day),
+                                    'maximum': date(year, 12, 31),
+                                    'input_title': 'Enter date. Format:',
+                                  'input_message': 'YY/MM//DD',
+                                  'error_title': 'Input value not valid!',
+                                  'error_message': 'Insert in a correct format or valid date'
+                                    })
+    worksheet.write('G1', 'Time')
+    worksheet.data_validation('$G$2:$G$20', {'validate': 'time',
+                                    'input_title': 'Enter time. Format:',
+                                    'criteria': 'between',
+                                  'minimum': time(9, 0,0),
+                                  'maximum': time(17, 0,0),
+                                  'input_message': 'hh:mm:ss',
+                                  'error_title': 'Input value not valid!',
+                                  'error_message': 'Insert in a correct format or valid time'
+                                    })
+    workbook.close()
+    return output
