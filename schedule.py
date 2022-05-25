@@ -190,3 +190,4 @@ def subtourelim(model,where):
             model.cbLazy(gp.quicksum(model._vars[i,j] + model._vars[j,i] for i, j in combinations(tour, 2))
                          <= len(tour)-1)
 
+#Welcome Kushi
