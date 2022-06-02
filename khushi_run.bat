@@ -1,0 +1,1 @@
+"C:\Users\7558088\Desktop\P2R\p2renv\Scripts\python.exe" -m streamlit run "C:\Users\7558088\Desktop\P2R\newapp.py"
