@@ -8,22 +8,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import streamlit as st
 
 from back import *
 from utils import *
 
 
-class Cust_Reader:
-    def __init__(self, connect_v,cust_req,cust_noreq, nodescsv,shovelnode, schedule, interval = 5):
+class Customer_Reader:
+    def __init__(self, connect_v, cust_req, cust_noreq,
+                first_st, schedule, nodescsv ='new_nodes.csv', interval = 5):
+        # This is the tonnage of stocks. In the ideal world, this should come
+        # from the gsheet.
         self.value_stocks = 5000
-        self.fixed = {'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
+        self.fixedloc = {'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
             'stock3':'f1','stock4':'g3','stock5':'h2','stock6':'k3',
             'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c25'}
         self.colors_f = {'start': '#f6fa00','entrance':'#f6fa00','stock1':'b','stock2':'b',
                     'stock3':'b','stock4':'b','stock5':'b','stock6':'b',
                     'stock7':'b','stock8':'b', 'scale':'b', 'end':'b'}
-        self.setstocks = {k:v for k,v in self.fixed.items() if 'stock' in k}
-        self.list_stocks = [k for k in self.fixed]
+        self.setstocks = {k:v for k,v in self.fixedloc.items() if 'stock' in k}
+        self.list_stocks = [k for k in self.fixedloc]
         self.noreq = cust_noreq
         self.nodescsv = pd.read_csv(nodescsv)
         self.cust_req = cust_req
@@ -51,7 +55,7 @@ class Cust_Reader:
         self.max_id_stockinfo = 0 
         self.max_id_shovel = 0
         self.max_billing = 0
-        
+        # This might get activated when we save info in the sheets
         #self.stock_tonnage = {stock:}
         # if self.table_shovel.shape[0]>0:
         #     self.max_id_shovel = max(self.table_shovel['shovel_id'])
@@ -67,11 +71,11 @@ class Cust_Reader:
         #         tonnage = float(data_sel[data_sel['stock_times']==max_time_sel]['stock_tonnage'])
         #         self.stock_tonnage[st_ini] = tonnage
         #     self.max_id_stockinfo = max(self.table_stockpile_ini['stock_id'])
-        self.fixedloc = self.fixed
+        
+        # Stock: Tonnage (Fixed for now)
         self.stock_tonnage = {stock:self.value_stocks for stock in self.setstocks}
+        # Return df, nodes:coordinates, graph and stock:nodes (fixed locat.)
         self.new_out, self.nodes, self.graph, self.nodes_loc = self.read_csv_2()
-        #print(self.nodes)
-        #print(self.nodes_loc)
         self.image = 'Pete_big.jpg'
         # position of each fixed location
         
@@ -87,8 +91,7 @@ class Cust_Reader:
         # # info piles in data structure 
         self.palette_piles = sns.color_palette("viridis",n_colors=len(self.setstocks)+1)
         # self.loc_piles = self.location_piles()
-         
-        #datafinal customer
+        # Convert data from requirement (in) to epoch
         self.requirement = self.get_requirement()
         
         if self.requirement.shape[0]>0:
@@ -107,8 +110,8 @@ class Cust_Reader:
             self.to_w = self.requirement['customer_dest']
             self.to_master = self.to_w
             #print(self.to_master)
-            
-            self.shovelnode = shovelnode
+            print('x' * 1000)
+            self.shovelnode = first_st
             self.truck_capacity = list(self.requirement['customer_tonnage'])
             self.c_order = list(self.requirement['customer_truck'])
             self.truck_ton = {self.c_order[i]: self.truck_capacity[i] for i in 
@@ -129,39 +132,10 @@ class Cust_Reader:
             self.to_w_m = self.to_master_text
             print(self.to_w_m)
             self.material = list(self.cust_req['Rock'])
-            self.loc_piles = {stock:[self.fixed[stock],self.value_stocks,self.palette_piles[
+            self.loc_piles = {stock:[self.fixedloc[stock],self.value_stocks,self.palette_piles[
             index],self.material[index][:2]] for index,stock in enumerate(self.setstocks)}
             #self.shovelnode = self.nodes_loc['shovel']
-    
-    def get_brute_force(self):
-        permutation = [x for x in itertools.permutations(self.dict_to_dec)]
-        delay =[]
-        for x in permutation:
-            assignment=[y.split('_')[0] for y in x]
-            decision_time = [self.dict_to_dec[dest][0] for dest in  x]
-            decision_time_sum = [self.dict_to_dec[dest][1] for dest in x]
-            truck_capacity = [self.dict_to_dec[dest][3] for dest in x]
-            diff_sum = np.diff(np.array(decision_time_sum))
-            decision_time = [0]+[x if x >0 else 0 for x in diff_sum]
-            delay_each = input_opt(
-                assignment, self.shovelnode, decision_time, decision_time_sum,
-                self.nodes_loc, self.from_w, self.entrance, self.graph, self.end,self.truck_velocity,
-                truck_capacity, self.loader_payload, self.loader_cycletime, self.loader_velocity)
-            delay.append(delay_each)
-        min_d = min(delay)
-        arg_min = np.argwhere(np.array(delay)==min_d)
-        #help with annotations
-        self.to_w_m = permutation[arg_min[0][0]]
-        #print(to_w_m)
-        self.decision_time_sum = [self.dict_to_dec[tim][1] for tim in self.to_w_m]
-        #self.c_order = [self.dict_to_dec[tim][2] for tim in self.to_w_m]
-        diff_sum = np.diff(np.array(decision_time_sum))
-        self.decision_time = [0]+[x if x >0 else 0 for x in diff_sum]
-        self.truck_capacity = [self.dict_to_dec[tim][3] for tim in self.to_w_m]
-        self.to_w=[y.split('_')[0] for y in self.to_w_m]
-        self.sched = 1
-        self.add_sched = 1
-        return self.get_data_animation()
+
     def info_fixed_loc(self):
         ##fixedloc
         table_fixedloc = pd.DataFrame.from_dict(self.fixedloc_ini)
@@ -179,6 +153,10 @@ class Cust_Reader:
         return table_customerstatus
 
     def get_requirement(self):
+        """ Modify date (yy-mm-dd.. format) to epoch, which is a number.
+        Returns
+            data_insert(df): Modified customer requirement.
+        """
         self.cust_req['Date'] = self.cust_req.apply(
                         lambda r : datetime.datetime.combine(r['Date'],r['Time']),1)
         self.cust_req['Epoch'] = (self.cust_req['Date']
@@ -207,8 +185,17 @@ class Cust_Reader:
             )
         return data_insert
     
-    def read_csv_2(self):
-        segment, points = filter_data(self.nodescsv,'PeteLien_bigger.png')
+    def read_csv_2(self, image = 'PeteLien_bigger.png'):
+        """ Convert the csv from VGG Annotator to a graph
+        Returns
+            new_out(df): table that contains the name of each point (node), its
+            coordinate and segment
+            nodes(dict): node and its coordinate
+            graph(dict): representation on how nodes are connected and distance(px)
+            between them
+            nodes_loc(dict): Stock: node for fixed locations
+        """
+        segment = filter_data(self.nodescsv,image)
         out = delete_doubles(segment)
         letter = string.ascii_lowercase
         letter = list(letter)
@@ -362,7 +349,6 @@ class Cust_Reader:
                 time_travel_shovel += time_to_load
                 points_shovel = interpolate(self.nodes,nodes_shovel,self.interpolator, 
                     self.loader_velocity)
-
                 if points_shovel.shape[0] == 0:
                     points_shovel = np.array([self.nodes[nodes_shovel[0]]])
                 extra_shovel = np.array([list(points_shovel[-1]) for x in range(time_to_load)])
@@ -641,89 +627,4 @@ class Cust_Reader:
         return matrix_for_customer, matrix_for_shovel, costumer_palette,large,change_stockpiles
 
 ##
-class getNodes:
-    def __init__(self, nodes_file):
-        self.node_file = pd.read_csv(nodes_file)
-        self.image = 'Pete_big.png'
-    def read_csv_2(self):       
-        segment, points = filter_data(self.node_file,'PeteLien_bigger.png')
-        out = delete_doubles(segment)
-        letter = string.ascii_lowercase
-        letter = list(letter)
-        nodes = {}
-        new_out =[]
-        for let_i, segment in enumerate(np.unique(out[:,2])):
-            let = letter[let_i]
-            data_segm =out[out[:,2]==segment]
-            for seg_i,c_data_segm in enumerate(data_segm):
-                val_data_segm = list(c_data_segm[:2])
-                if val_data_segm in nodes.values():
-                    x = [k for k,v in nodes.items() if v == val_data_segm]
-                    new_out.append(list(data_segm[seg_i])+[x[0]])
-                    continue
-                nodes[let+str(seg_i)] = val_data_segm
-                new_out.append(list(data_segm[seg_i])+[let+str(seg_i)])
-        new_out = pd.DataFrame(new_out, columns = ['x','y','seg','node'])
-        graph ={}
-        for seg_n in np.unique(new_out['seg']):
-            data_seg_out = np.array(new_out[new_out['seg']== seg_n])
-            for i_dato in range(data_seg_out.shape[0]-1):
-                bef_p = data_seg_out[i_dato][:2]
-                node_bef = find_key(bef_p, nodes)
-                aft_p = data_seg_out[i_dato+1][:2]
-                node_aft = find_key(aft_p, nodes)
-                if node_aft == node_bef:
-                    continue
-                name_node =node_bef+node_aft
-                if node_bef not in graph:
-                    graph[node_bef] = list()
-                res_bef_aft  = aft_p-bef_p
-                distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
-                graph[node_bef].append((node_aft, distance))
-        # nodes_loc = {key_lp:node_lp for key_lp in self.fixedloc for
-        #      node_lp in nodes if self.fixedloc[key_lp] == nodes[node_lp]}
-        return new_out, nodes, graph#, nodes_loc
 
-def give_image(file, fixed, colors_f):
-    hola = getNodes(file)
-    info_nodes = hola.read_csv_2()
-    nodes = info_nodes[1]
-    new_out = info_nodes[0]
-    coordinates = np.array(list(nodes.values()))
-    reading_ima = cv2.imread(hola.image)
-    fig = plt.figure()
-    plt.imshow(reading_ima)
-    plt.gca().set_aspect('equal', adjustable='box')
-    #plt.scatter(coordinates[:,0],coordinates[:,1], s=2)
-    for key in nodes:
-        if 'a' in key:
-            color_seg = '#f6fa00'
-        else:
-            color_seg = '#bdfffb'
-        
-        #plt.text(nodes[key][0],nodes[key][1], key, fontsize=3, c = color_seg)
-    for key,values in fixed.items():
-        #plt.text(nodes[values][0],nodes[values][1]+30, key, fontsize=8, color='blue')
-        color_si = colors_f[key]
-        if 'a' in values:
-            color_seg = '#f6fa00'
-        else:
-            color_seg = '#00fff7'
-        plt.scatter(nodes[values][0],nodes[values][1], s=10,c=color_seg)
-        plt.annotate(key,xy=(nodes[values][0],nodes[values][1]), xytext=(nodes[values][0]+40,nodes[values][1]+20), 
-                        arrowprops=dict(arrowstyle='->', lw=1, color=color_si),
-                        fontsize=7, color = color_seg) 
-    #print(new_out)
-    for segment in np.unique(new_out['seg']):
-        
-        sampil = ''.join(list(np.unique(new_out[new_out['seg']==segment]['node'])))
-        #print(sampil)
-        sample = np.array(new_out[new_out['seg']==segment][['x','y']])
-        color_seg = '#00fff7'
-        if sampil.count('a') >2:
-            color_seg = '#f6fa00'
-        for x1, x2 in zip(sample[:-1],sample[1:]):
-            plt.annotate('',xy=(x2[0],x2[1]), xytext=(x1[0],x1[1]), arrowprops=dict(
-                arrowstyle='->', linestyle="--", lw=1, color=color_seg)) 
-    return fig
-   #st.pyplot(fig)
