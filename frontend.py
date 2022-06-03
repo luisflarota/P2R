@@ -28,49 +28,6 @@ colors_f = {'start': '#f6fa00','entrance':'#f6fa00','stock1':'b','stock2':'b',
                     'stock7':'b','stock8':'b', 'scale':'b', 'end':'b'}
 list_stocks  = [stock for stock in fixed if 'stock' in stock]
 
-#Freeze
-@st.experimental_memo
-def connect_gsheet(datarequired, datamissed,first_st, schedule):
-    """
-    Connects to the Google Sheet (P2RData) to retrieve + upload data. It also
-    connects to the class Cust_Reader to mix info from P2RData and the req.
-    Args:
-        datarequired(df): What we have in inventory from the customer req.
-        datamissed(df): What we do not have in inventory from the customer req.
-        first_st(str): First stock assigned to the loader.
-        schedule (list of tuples): Best combination of truck, stock.
-
-    Returns:
-        data_ani(dict): Bunch of variables to be used to animate
-        matrix_custo(matrix): Matrix of # * n of trucks where each element is a position. This behaves
-            based on how trucks are scheduled
-        matrix_sho(dict): Matrix with positions of shovels eeach 'interval' seconds'
-    """
-    # This will authenticate and authorize the app 
-    connect = gspread.service_account_from_dict({
-            "type": "service_account",
-            "project_id": "p2rsheet",
-            "private_key_id": "d5d63c83d13f24fa40ab2363eae6bc546b4ab3dd",
-            "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDavqh4H2MGmrze\nYVhKzV5wMBc+WHpRz2DtR+wkdYUOCrtGcPKoOpyfgcsYMGpYGJwM+rconl4LeiaB\nj5KjYRUj5CrAOoKIixICipWMiJazXwQkiu8+CmXCIhpTxsBbztKxPrsnVAp+ZPY0\n5GHE5dKCYD27Uwrm+P31OQiwNk5KEitIiaL3peuwZsjEa7mEjGqe6y1ptihLQAgY\n8OqcRiDmHzQuPlTlcn4HbbPV5C39rlvO/WU0eqqMu+F7mrxigVXZzzExUhw6kXpT\nmPE1StKZPNRX9z/OWgz9SLDKFZ5c1NuEF7v1T4StafJlOPyXYF0T9sPgCluLk+oO\nxhIXOkQLAgMBAAECggEAFfFajf48B/K9b84Hti08GXiW2aVffoBqjTLnSyWnd2f3\n2aeajT9Klyzvy26OjxAc61JlItkhaaOoZDEbo8b+gLoH2H5Quii/4ZW2+Gt6jpDB\nUMxya7X4TOKbOHyErvukIq0+ceyvcXa9me2vqbmSMIuTSwzCrbZxfJ1q3oj8DoLs\n43f/RDeXq6Luvk7PEPfaps618JnvmMdJylwQXHX+mbfHIxlqevVCBKn6t++DBw3Y\n2nbNeAtrVox1NFgLcwlVXP2WGjTE4DPrwlF0ipn8FzI8Hv43u8292lB7vhD8M2ih\nYrLYsXYVYGiJi17W236W3MtdnTkTTgRHu5AOJTjQWQKBgQD3JJKqluT7WYFmKvGJ\nKscKmcSKC5/8lAbIjqPJhTlEGDH13DdPkJ63L9y4QfS4mBA3VtdEOzOtLD1TYdPr\nbxyaW7UU1C2hxEHXomPwoUXHv7LVEnl1EBzNyC1D213eND7R17Dwjwh70FHxe2Zz\nwZg8OAJG9VY8WhGXf4tdJXEXqQKBgQDilYuIAeM66gcmrIytbC+1ulhyNnTq8xye\nL3PnuuJZrXsxZaNm5rOI+2DnC/JoEFY+KGZOFeVy6biu3sQQ5OCRAlNjayIw0G1F\nQ9+yLsR1exBPMaupSuYoRqL7IKZcIANHolU67O9rNSrGTinAfLveI7g36uq4t+oo\n+jTiNVD+kwKBgQDs5pTkitIiEbEVI1L2PhgflDgub2hDcA10kC52TIsRN/QkDZzD\nWwiY5ns38JlJnRHmSgr9L5agiAic9ehzBMYxPHk+5wh6ySqoLdSI476E87/TuOrO\nCMzjgN/K7Ot0xTX2ZkAIx8LFFHKH/Na/XTK1fqbIKAIqxdeZFjyb4/kdSQKBgQDM\nf6YAKZv5FzE/EWqiNstUnAupgUbCqoqApllYow4ZW/6c1ZvFiqAtGJwby2eLznrX\n/MRg41hD/3eEtF+G09tuZQf36cBhCCwm4Jxrh9QeJ+TPZQgGcigJ377HIm+jI+1x\n4KxF04Q+YSzq7661IJ66XcitByOzdaIsO64xH2erawKBgQDoWYNhFOtT2ImnJQjo\ntxVNT6ysJx6IO5/Ua7aMaMV0aJs8uA7eAP4c7MxxM3FUE388IGG/lAuLxVBw1szy\nM/pEeO/yMT34kEbWJfI6A5aLkF0e+W1MLE32Y830ncgNkS7TGoc4x2Sj6dEFy/sU\nYv2jaIEY1uQgQanntNqIr0gCGQ==\n-----END PRIVATE KEY-----\n",
-            "client_email": "myp2rproject@p2rsheet.iam.gserviceaccount.com",
-            "client_id": "118385622492695551129",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/myp2rproject%40p2rsheet.iam.gserviceaccount.com"
-            })
-    # Connect to the P2RData google sheet
-    sh = connect.open('P2RData')
-    connect_back = Customer_Reader(sh, datarequired,datamissed,first_st, schedule)
-    data_ani= 0
-    #print(connect_back.requirement)
-    if connect_back.requirement.shape[0]>0:
-        data_ani = connect_back.get_data_animation()
-        matrix_custo = data_ani[0][0]
-        matrix_sho = data_ani[0][1]
-    return data_ani,matrix_custo,matrix_sho
-
-
 def main():
     """ Front-end part starts here."""
     st.title('Pit 2 Road')
@@ -196,11 +153,13 @@ def main():
                                                     materials_stocks)
                 if len(conn_customer.unavailable_materials)>=1:
                     st.warning('We do not have this set of materials:{}'.format(conn_customer.unavailable_materials))
+                    # TODO: Check if trucks are duplicated 
                 if len(conn_customer.unavailable_materials)!=len(conn_customer.materials_customer_req):
                     st.success('We can process the following requirement:')
                     st.dataframe(conn_customer.customer_req_available)
                     if st.checkbox('Start scheduling:'):
                         # Returns the (trucks,stock), min_idletime, first_stock
+                        # TODO: Freeze the scheduling method so it does not run again and againx100
                         schedule, minval, first_stock = conn_customer.scheduling()
                         # TODO: How to comunicate the best schedule
                         st.success('Schedule')
@@ -209,84 +168,13 @@ def main():
                         # Choose one destination for truck based on the schedule
                         last_data_customer = conn_customer.modify_req_schedule_dest(schedule)
                         st.dataframe(last_data_customer)
-                        data_ani,matr_custo,matrix_shov = connect_gsheet(
-                            last_data_customer, data_customer_out,first_stock, schedule
-                            )
-                        datain = Animation_2(data_ani)
-                        if st.checkbox('Show animation_2'):
-                            format = 'MMMD,YYYY, hh:mm:ss'  # format output
-                            st.write(datetime.datetime.fromtimestamp(datain.min_dectime).strftime('%c'))
-                            start_date = datetime.datetime.fromtimestamp(datain.min_dectime) #  I need some range in the past
-                            end_date = start_date+relativedelta(seconds=datain.large)
-                            max_days = end_date-start_date
-                            slider = st.slider('Select date', min_value=start_date, value= end_date, max_value=end_date,step=datetime.timedelta(seconds=1), format=format,key = 'a3')
-                            if 'a3' not in st.session_state:
-                                st.session_state.a1 =  True
-                                st.session_state.a2 =  True
-                            dif = (slider-start_date).seconds
-                            #print(dif)
-                            #try:
-                            plt_slider = datain.ini_2()
-                            to_master_text = datain.to_master_text
-                            to_w_m = datain.to_w_m
-                            left,right = datain.ax.get_xlim()
-                            down,up = datain.ax.get_ylim()
-                            c_order = datain.c_order
-                            change_stock = datain.change_stock
-                            change_stock_play = dict((k, v) for k, v in change_stock.items() if  v<=dif)
-                            #print(change_stock_play)
-                            j_shovel = len(change_stock_play)
-                            #print(j_shovel)
-                            location_piles = datain.location_piles
-                            loc_pil_plot = {k:v for k,v in datain.fixed_location.items() if 'stock' in k}
-                            truck_capacity = datain.truck_capacity
-                            to_w = datain.to_w
-                            matrix_chosen = matr_custo[dif]
-                            txt_up = 20
-                            for key,val in change_stock_play.items():
-                                print(location_piles)
-                                print('location piles: {}'.format(location_piles[key[0]][2]))
-                                print(truck_capacity[0])
-                                location_piles[key[0]][1] = location_piles[key[0]][1] - truck_capacity[0]
-                                truck_capacity.remove(truck_capacity[0])
-                            text_stok = [key+'\n{:.0f}t[{}]'.format(values[1], values[3]) for key,values in location_piles.items()]
-                            for id, loc_pil in enumerate(loc_pil_plot):
+                        # TODO: Have a checkbox that ask the user if they want to connect
+                        # and update the Google Sheet 
+                        # Connecting to the P2RData Google Sheet
+                        # conn_customer.connect_gsheet()
 
-                                plt.scatter(loc_pil_plot[loc_pil][0],loc_pil_plot[loc_pil][1], c = 'b')
-                                plt.text(loc_pil_plot[loc_pil][0],loc_pil_plot[loc_pil][1]+50, text_stok[id],
-                                backgroundcolor = 'white')
-                            active_sec = True
-                            label_s = to_w_m[0]
-                            if j_shovel>=1 and j_shovel < len(to_w_m):
-                                label_s = to_w_m[j_shovel]
-                                active_sec = True
-                            elif j_shovel==len(to_w_m):
-                                label_s = 'DONE!'
-                                active_sec = False
-                            print(matrix_chosen)
-                            for ind_i in range(len(matrix_chosen)):
-                                if matrix_chosen[ind_i][0] != None:
-                                    destination = to_master_text[ind_i]
-                                    ind_customer = [index for index, destin in enumerate(to_w_m) if destin == destination][0]
-                                    customer = c_order[ind_i]
-                                    destination_text = destination.split('_')[0]
-                                    label_text = customer+' to: {} ({})'.format(destination_text, str(ind_customer+1))
-                                    color_costu = 'k'
-                                    customer = datain.c_order[ind_i]
-                                    color_costu = 'k'
-                                    if active_sec:
-                                        if destination == to_w_m[j_shovel] and active_sec:
-                                            color_costu = '#FF0000'
-                                    plt.text(left+10,up+txt_up,label_text, backgroundcolor = 'white',fontsize =8, color = color_costu)
-                                    plt.text(matrix_chosen[ind_i][0],matrix_chosen[ind_i][1], customer,color = color_costu)
-                                    plt.scatter(matrix_chosen[ind_i][0],matrix_chosen[ind_i][1],marker='+', s=100,linewidth=2,color = color_costu)
-                                    txt_up+=25
-                            #plt.scatter(matrix_chosen[:,0],matrix_chosen[:,1], )
-                            plt.scatter(matrix_shov[dif][0],matrix_shov[dif][1])
-                            plt.text(matrix_shov[dif][0],matrix_shov[dif][1], 'L1-'+label_s[0]+label_s[5], color ='k',backgroundcolor = '#FFFF00')
-                            plt.text(400,600, label_s,backgroundcolor = 'white')
-                            plt.tight_layout()
-                            st.pyplot(plt_slider)
+                        if st.checkbox('Show animation_2'):
+                            print(conn_customer.get_data_animation(first_stock,last_data_customer))
                     #except:
                      #   st.warning('Try another date/ Select stocks for loaders correctly')
     # else:

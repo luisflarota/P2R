@@ -171,10 +171,13 @@ def readnodesfile(nodes_file, image = 'PeteLien_bigger.png'):
             res_bef_aft  = aft_p-bef_p
             distance = round(np.sqrt(np.sum(np.square(res_bef_aft))),3)
             graph[node_bef].append((node_aft, distance))
-    return new_out, nodes, graph
+    return nodes, graph
 
 def add_index_typeloaders(req_in):
-    """ Adds new column to recognize the loader in each truck's requirement
+    # TODO: We need to implement a way to recognize excavator/hopper in order to retrieve
+    # its data from load_properties
+
+    """ Add new column to recognize the loader in each truck's requirement
     Args:
         req_in(df): requirement processed for a customer that is in stocks
    
@@ -189,9 +192,7 @@ def add_index_typeloaders(req_in):
     req_in['Load'] = np.array([loaders[0] for x in range(len(req_in))])
     req_in = req_in.sort_values('Epoch')
     return req_in
-    # We need to implement a way to recognize excavator/hopper in order to retrieve
-    # its data from load_properties
-
+    
 #---------------Dijkstra
 #Start
 def calculateAP(path, graph):

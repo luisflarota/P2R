@@ -592,6 +592,7 @@ class Customer_Reader:
             last_x_entr = to_stock[0][0]
             last_y_entr = to_stock[0][1]
             to_end = customer_data[2]
+            # Points to move from stock i to j + points loading
             sho_to_sho = customer_data[3]
             if len(sho_to_sho) ==1:
                 last_x_sho = sho_to_sho[0][0]
@@ -602,17 +603,16 @@ class Customer_Reader:
             if index == 0:
                 none_shovel = [[None, None] for x in range(len(to_entrance+to_stock) - len(sho_to_sho))]
                 sho_to_sho = none_shovel+sho_to_sho
-                if index+1 == len(self.dict_discretize):
-                    end_shovel = [[last_x_sho, last_y_sho] for x in range(len(to_end))]
-                    sho_to_sho = sho_to_sho+end_shovel
                 stock_before= len(to_stock)
             else:
+                # idle time
                 len_add_stock = stock_before - decision_time[index] +len(sho_to_sho) - len(to_stock)
                 stock_before = len(to_stock)
                 if len_add_stock> 0:
+                    # Adding queue points at the beginning of points_to_stock
                     to_stock = [[last_x_entr, last_y_entr] for x in range(int(len_add_stock))]+ to_stock
                     stock_before= len(to_stock)
-                if index+1== len(self.dict_discretize):
+                if index+1 == len(self.dict_discretize):
                     sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(len(to_end))]
                 else:
                     sho_to_sho = sho_to_sho + [[last_x_sho, last_y_sho] for x in range(int(len_add_stock*-1))]

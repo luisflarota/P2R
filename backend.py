@@ -16,7 +16,7 @@ from back import *
 from schedule import *
 from utils import *
 
-
+#TODO: See if we need an interval time different than 1 
 class ConnectCustomer:
     def __init__(self, customer_req, loading_properties,
                 materials_stocks,image_animation = 'Pete_big.jpg',
@@ -34,7 +34,7 @@ class ConnectCustomer:
         self.fixedloc = {
             'start': 'a0','entrance':'a5','stock1':'d2','stock2':'e1',
             'stock3':'f1','stock4':'g3','stock5':'h2','stock6':'k3',
-            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c25'
+            'stock7':'l5','stock8':'m2', 'scale':'c22', 'end':'c24'
             }
         # Fixed location: color (Animation purpose)
         self.colors_f = {'start': '#f6fa00', 'entrance':'#f6fa00', 'stock1':'b',
@@ -42,27 +42,30 @@ class ConnectCustomer:
                     'stock6':'b','stock7':'b','stock8':'b', 'scale':'b',
                      'end':'b'
                      }
+        # Stocks: node
         self.setstocks = {k:v for k,v in self.fixedloc.items() if 'stock' in k}
         self.stock_tonnage = {stock:self.value_stocks for stock in self.setstocks}
-        #self.list_stocks = [k for k in self.fixedloc]
         self.start = 'start'
         self.entrance ='entrance'
         self.scale = 'scale'
         self.end = 'end'
         # Convert km/h to m/s
         convert_meters_sec = 0.28
-        self.truck_velocity = 20 * convert_meters_sec  
-        self.new_out, self.nodes, self.graph = readnodesfile(nodescsv)
-        # We can create this palette based on materials
+        self.truck_velocity = 20 * convert_meters_sec
+        # Getting the nodes (node: location) and the graph (node: its path)
+        self.nodes, self.graph = readnodesfile(nodescsv)
+        # TODO: We can create this palette based on materials
         self.palette_piles = sns.color_palette(
             "viridis",n_colors=len(self.setstocks)+1
             )
+        # Getting the available/unavailable materials and the customer requirements based on them.
         self.availability_customer_req()
-        # truck: summation time (initial)
+        
     def availability_customer_req(self):
         """ 
         Split the customer requirement based on what is available and
-        what is not.
+        what is not. It creates 4 attributes, available materials, unavailable materials,
+        customer requirement available and customer requirement unavailable.
         """
         # Return the material corresponding to each stock
         stocks_materials = return_stock_for_material(self.materials_stocks)
@@ -88,6 +91,7 @@ class ConnectCustomer:
         # Filter customer requirement with what is NOT in stocks
         self.customer_req_unavailable = self.customer_req[
             self.customer_req['Material'].isin(self.unavailable_materials)]
+        # Creating a matrix for the customer req. available that has the necessary columns
         self.customer_req_available = [
                 list(x[:4])
                 +stock_load_truckmat(x[3], stocks_materials, stocks_loadingequip)[0] 
@@ -96,9 +100,11 @@ class ConnectCustomer:
         self.customer_req_available = pd.DataFrame(np.array(self.customer_req_available),
             columns =['Id','Company','Truck','Rock','Dest',
             'TypeLoader','Tonnage','Date','Time'])
+        # Adding an epoch time to the customer_req_available
         self.add_epoch_column()
         self.trucks = [truck for truck in self.customer_req_available['Truck']]
 
+    # TODO: Connecting and updating the google sheet. Either one or multiple methods
     def connect_gsheet(self):
         """Connects to the Google Sheet (P2RData) to retrieve + upload data."""        
         self.connect = gspread.service_account_from_dict({
@@ -130,28 +136,52 @@ class ConnectCustomer:
         for self.interval seconds.
         Args:
             first_stock(str): Destination for the first truck assigned
-            schedule(list of tuples): Best truck:stock assignment
-        """
-        dict_discretize = dict()
-        # TODO: Think if we need self.start as the string or its node?
+            last_data_customer(df): Customer requirement available after scheduling
 
+        Returns:
+            matrix_trucks_coordinates(matrix): Matrix that contains the coordinates for
+                each truck. Columns represent each truck's positions and rows represent
+                the truck's position at different times.
+            TODO: Add more type of loaders and the amount of different loaders 
+            matrix_loaders_coordinates(matrix): Matrix that contains the coordinates for
+                the loader. Columns represent the loader's positions and rows represent 
+                the loader's position at different times. 
+        """
+        
+        # Create an empty matrix for trucks' coordinates
+        matrix_trucks_coordinates = np.full((2**2**4,last_data_customer.shape[0],2),None)
+        # Create an empty matrix for loaders' coordinates
+        matrix_loaders_coordinates = np.empty(shape = (0,2), dtype=object)
+        # TODO: Think if we need self.start as the string or its node?
         previous_loader_node = self.fixedloc[first_stock]
         start_node = self.fixedloc[self.start]
         entrance_node = self.fixedloc[self.entrance]
         scale_node = self.fixedloc[self.scale]
+        # Time that truck takes to weigh itself
+        time_scaling = 30
         end_node = self.fixedloc[self.end]
+        
         # From start to entrance
         path_to_entrance = Dijkstra(self.graph, start_node, entrance_node)
         nodes_to_entrance = path_to_entrance[1]
         time_to_entrance = int(math.ceil(path_to_entrance[2]/self.truck_velocity))
         points_to_entrance = interpolate(self.nodes,nodes_to_entrance,self.interval, 
-                    self.truck_velocity)
+                    self.truck_velocity).tolist()
+        # From scale to end
+        path_to_end = Dijkstra(self.graph, scale_node, end_node)
+        nodes_to_end = path_to_end[1]
+        time_to_end = int(math.ceil(path_to_end[2]/self.truck_velocity))
+        points_to_end = interpolate(self.nodes,nodes_to_end,self.interval, 
+                    self.truck_velocity).tolist()
+
         # Previous time to stock
         previous_truck_tstock = 0
+
         for index, truck in enumerate(np.array(last_data_customer['Truck'])):
+            # Get the row of the dataframe that belongs to current truck
             data_for_truck = last_data_customer[last_data_customer['Truck'] == truck]
-            stock = str(data_for_truck['Dest'])
-            truck_tonnage = str(data_for_truck['Tonnage'])
+            stock = np.array(data_for_truck['Dest'])[0]
+            truck_tonnage = float(data_for_truck['Tonnage'])
             # TODO: Change Loader information based on what is assigned to each truck
             loader_velocity = self.loading_properties['loader'][2]
             loader_payload =  self.loading_properties['loader'][3]
@@ -161,15 +191,21 @@ class ConnectCustomer:
             # Modify start to entrance based on arrival time
             if index>0:
                 previous_truck = np.array(last_data_customer['Truck'])[index-1]
-                previous_truck_arrtime = last_data_customer[
-                    last_data_customer['Truck'] == previous_truck]['ArrTime']
-                current_truck_arrtime = data_for_truck['ArrTime']
+                previous_truck_arrtime = np.array(last_data_customer[
+                    last_data_customer['Truck'] == previous_truck]['ArrTime'])[0]
+                current_truck_arrtime = np.array(data_for_truck['ArrTime'])[0]
+                # Adding None points based on the time of arrival so we do not show the current truck
+                # in the animation until it join the start point.
+                points_to_entrance = [[None, None] for x in range(current_truck_arrtime)] + points_to_entrance
+                # If current truck is assigned after the previous one but showed up before it. Then, we need
+                # to add a waiting time.
                 if current_truck_arrtime < previous_truck_arrtime:
                     waiting_step = math.ceil(
                         (previous_truck_arrtime - current_truck_arrtime)/self.interval)
+                    # Duplicating the last point to entrance based on waiting step
                     points_waiting = np.array([list(points_to_entrance[-1]) for x in range(waiting_step)])
-                    points_to_entrance = np.concatenate((points_to_entrance,points_waiting))
-            points_to_entrance = points_to_entrance.tolist()
+                    points_to_entrance = np.concatenate((points_to_entrance,points_waiting)).tolist()
+
             # From entrance to stock
             path_to_stock = Dijkstra(self.graph,entrance_node, stock_node)
             nodes_to_stock = path_to_stock[1]
@@ -178,7 +214,7 @@ class ConnectCustomer:
             time_to_stock += time_to_load
             points_to_stock = interpolate(self.nodes,nodes_to_stock,self.interval, 
                     self.truck_velocity)
-            points_loading = np.array([list(points_to_stock[-1]) for x in range(time_to_load/self.interval)])
+            points_loading = np.array([list(points_to_stock[-1]) for x in range(round(time_to_load/self.interval))])
             points_to_stock = np.concatenate((points_to_stock,points_loading)).tolist()
 
             # From stock to scale
@@ -187,8 +223,7 @@ class ConnectCustomer:
             time_to_scale = int(math.ceil(path_to_scale[2]/self.truck_velocity))
             points_to_scale = interpolate(self.nodes,nodes_to_scale,self.interval, 
                     self.truck_velocity)
-            time_scaling = 30
-            points_scaling = np.array([list(points_to_scale[-1]) for x in range(time_scaling/self.interval)])
+            points_scaling = np.array([list(points_to_scale[-1]) for x in range(round(time_scaling/self.interval))])
             points_to_scale = np.concatenate((points_to_scale,points_scaling)).tolist()
 
             # From stock to stock (loader)
@@ -197,34 +232,47 @@ class ConnectCustomer:
             time_loader = int(math.ceil(path_loader[2]/loader_velocity)) + time_to_load
             points_loader =  interpolate(self.nodes,nodes_loader,self.interval, 
                     loader_velocity)
-            if points_loader.shape[0] == 0:
-                points_loader = np.array(points_to_stock[-1])
-            points_loader = np.concatenate((points_loader,points_loading)).tolist() 
+            # If it is the first assignment
+            if index == 0:
+                # Duplicating the stock's position for the loader based on the time that the first truck will
+                #  take to get to the first stock
+                initial_loader_points = [points_to_stock[-1] for x in range(len(points_to_entrance+points_to_stock))]
+                points_loader = np.array(initial_loader_points)
+            # If the loader is assigned to the same stock as the previous assignment
+            elif points_loader.shape[0] == 0:
+                points_loader = np.array([points_to_stock[-1]])
+            points_loader = np.concatenate((points_loader,points_loading)) 
+            # Update previous loader node to use for the next assignment
             previous_loader_node = stock_node
-
             # Modify path to entrance based on idle time
-            queue_step = 0
             if index>0:
+                # Queue time for the current truck at the entrance
                 queue_time = previous_truck_tstock + time_loader - time_to_stock
                 if queue_time > 0:
-                    queue_step = queue_time/self.interval
-            points_queue = np.array([list(points_to_entrance[-1]) for x in range(queue_step)])
-            points_to_entrance = np.concatenate((points_to_entrance,points_queue))
+                    # Number of times to duplicate the last position to entrance
+                    queue_step = round(queue_time/self.interval)
+                    points_queue = np.array([list(points_to_entrance[-1]) for x in range(queue_step)])
+                    points_to_entrance = np.concatenate((points_to_entrance,points_queue)).tolist()
+                else:
+                    # If loader needs to wait because the time to go to stock for the current
+                    # truck is more than (the time to go to stock for previous truck +
+                    # time for loading + time for the loader to move from prev to current truck).
+                    waiting_points_loader = [points_loader[-1] for i in range(queue_time*-1)]
+                    # Updating the coordinates of the loader to wait at the stock for the 
+                    # current truck
+                    points_loader = np.concatenate((points_loader,waiting_points_loader)) 
             # Saving time to stock of the previous truck
-            previous_truck_tstock = time_to_stock
-        # From scale to end
-        path_to_end = Dijkstra(self.graph, scale_node, end_node)
-        nodes_to_end = path_to_end[1]
-        time_to_end = int(math.ceil(path_to_end[2]/self.truck_velocity))
-        points_to_end = interpolate(self.nodes,nodes_to_end,self.interval, 
-                    self.truck_velocity).tolist()
-        # TODO: Build the matrix for trucks and shovels 
+            previous_truck_tstock = time_to_stock 
+            # Assigning all coordinates of the trucks to one variable
+            all_points_truck = points_to_entrance + points_to_stock + points_to_scale + points_to_end
+            # Saving all coordinates of the trucks in the matrix
+            matrix_trucks_coordinates[:,index][0:len(all_points_truck)] = np.array(all_points_truck)
+            # Updating the loader's matrix based on its positions
+            matrix_loaders_coordinates = np.concatenate([matrix_loaders_coordinates,np.array(points_loader, dtype=object)])
+        return matrix_trucks_coordinates, matrix_loaders_coordinates
 
     def add_epoch_column(self):
-        """ Modify date (yy-mm-dd.. format) to epoch, which is a number.
-        Returns
-            data_insert(df): Modified customer requirement.
-        """
+        """ Modify date (yy-mm-dd..) format to epoch, which is a number."""
         self.customer_req_available['Date'] = self.customer_req_available.apply(
                         lambda r : datetime.datetime.combine(r['Date'],r['Time']),1)
         self.customer_req_available['Epoch'] = (self.customer_req_available['Date']
@@ -237,107 +285,108 @@ class ConnectCustomer:
         overall idle time of trucks.
 
         Returns:
-            selected_truck_stock (list of tuples): Best sequence of assignments of 
-            (truck, stock)
-            minval(int): Total idle time of the best assignments 
-            shovelini(str): Initial position of a loader - "stock1"
+            schedule(list of tuples): Best sequence of assignments (truck, stock)
+            minimum_idle_time(int): Total idle time of the best assignment
+            initial_position_loader(str): Initial position of a loader
         """
-
+        # Getting the minimum epoch to substract the others' epochs
         min_t= min(self.customer_req_available['Epoch'])
+        # Adding a new column to recognize the loader and query the loading properties
         self.customer_req_available = add_index_typeloaders(self.customer_req_available)
         # Converting epochtime to integers from 1-100
         self.customer_req_available['ArrTime'] = np.array([
             time_-min_t for time_ in np.array(self.customer_req_available['Epoch'])])
         # Save brute force when comparing stocks for materials
-        # Schedule (truck,stock): [best_assignment, minimumtime]
+        # (Truck,stock): [best_assignment, minimumtime]
         prospect_schedules = {}
+        # Looping through the Load column
+        # TODO: This might be avoided when creating another binary variable in gurobi
         for loader in np.unique(self.customer_req_available['Load']):
+            # Select the rows that corresponds to having a "loader"
             customer_req_selected = self.customer_req_available[
                 self.customer_req_available['Load'] == loader]
-            # TODO: This might be avoided when creating another binary variable
-            # in gurobi
-            if loader == 'hopper':
-                prospect_schedules[loader] = customer_req_selected['Truck']
-            else:
-                loader_velocity = self.loading_properties[loader][2]
-                loader_payload =  self.loading_properties[loader][3]
-                loader_cycletime =  self.loading_properties[loader][4]
-                # Saves truck: material, time_arrival (1-100), tonnage
-                cinfo  = {
-                    x[2]:[x[3],x[11], x[6]] for x in np.array(customer_req_selected)}
-                # Truck: [Destinations]. This is important for permutations_dicts
-                truck_destinations = {truck:list(
-                        customer_req_selected[customer_req_selected['Truck'] == truck]['Dest'])[0]
-                        for truck in np.unique(customer_req_selected['Truck'])}
-                keys_truck, values_destination = zip(*truck_destinations.items())
-                # Permutations of Truck and Destinations(This is being looped below)
-                permut_trucks_stocks = [list(zip(keys_truck, v)) 
-                                        for v in itertools.product(*values_destination)]
-                
-                for perm_t_st in permut_trucks_stocks:
-                    # Adds dummy variable. The values for the dummy will be [0,0,0]
-                    customer_req_truckinfo = self.convert_cust_req(
-                                            cinfo, perm_t_st)
-
-                    # Sorts customer_req_truckinfo based on arrival time (sanity check)
-                    sorted_times = {key:customer_req_truckinfo[key][1]
-                                 for i,key in enumerate(customer_req_truckinfo)}
-                    sorted_times = dict(sorted(sorted_times.items(), key=lambda item: item[1]))
-                    customer_req_truckinfo = {
-                        key: customer_req_truckinfo[key] for key in customer_req_truckinfo}
-                    # Truck:summation of arrival time
-                    truck_sumation_time ={k:customer_req_truckinfo[k][1] for 
-                                                ind,k in enumerate(customer_req_truckinfo) if k != 'dummy'}
-                    # Truck:time to stock from entrance + time to be loaded
-                    truck_tostock_time = {k: round(
-                        float(Dijkstra(self.graph,self.fixedloc['entrance'],self.fixedloc[customer_req_truckinfo[k][0]])[2])
-                                    /self.truck_velocity)  # Dist/veloc = time to travel
-                                    +int(math.ceil(customer_req_truckinfo[k][2]/loader_payload)*loader_cycletime)  # Time to load
-                                    for k,v in customer_req_truckinfo.items() if k != 'dummy'}
-                    # Time for loader to travel from stock of truck tr1 to stock of tr2.
-                    loader_stock_time = {(tr1,tr2): round(
-                        float(Dijkstra(self.graph, self.fixedloc[customer_req_truckinfo[tr1][0]], self.fixedloc[customer_req_truckinfo[tr2][0]])[2])
-                        /loader_velocity #dist/veloc = time to travel
-                        +int(math.ceil(customer_req_truckinfo[tr2][2]/loader_payload)*loader_cycletime))  # Tload
-                        for tr1 in self.trucks for tr2 in self.trucks 
-                            if tr1 != tr2 and 'dum' not in tr1 and 'dum' not in tr2}
-                    # Compute the idle time based on an assignment of 2 trucks. These combina-
-                    # tions fit in the way that TSP is solved. 
-                    # TODO: We can also run the total time  and run a comparison between idle time vs total time (includes idle time)
-                    truck_times = {(tr1,tr2): idle_time(
-                            tr1,tr2,truck_sumation_time, truck_tostock_time,loader_stock_time)
-                            for tr1 in self.trucks for tr2 in self.trucks if  tr1 != tr2}
-                    # Updating prospect_schedules
-                    scheduling(truck_times,perm_t_st,prospect_schedules, self.trucks)
-                # Selecting the minimum idle time
-                minimum_idle_time = min(np.array(list(prospect_schedules.values()),dtype=object)[:,1])
-                # Selecting the permutation and best sequence that had the minimum idle time 
-                best_permutation = [[perm_t_st,v[0]] for k, v in prospect_schedules.items() if v[1]==minimum_idle_time]
-                # Truck: destination from permutation but not the best sequence
-                initial_truck_destination = {x[0]:x[1] for x in best_permutation[0][0]}
-                # Best sequence of (Truck,destination)
-                schedule = [(x,initial_truck_destination[x]) for x in best_permutation[0][1]]
-                initial_position_loader = schedule[0][1]
-                return schedule, minimum_idle_time, initial_position_loader   
+            # Retrieving information from each type of loader
+            loader_velocity = self.loading_properties[loader][2]
+            loader_payload =  self.loading_properties[loader][3]
+            loader_cycletime =  self.loading_properties[loader][4]
+            # Saves truck: material, time_arrival (1-100), tonnage
+            truck_info  = {x[2]:[x[3],x[11], x[6]] for x in np.array(customer_req_selected)}
+            # Truck: [Destination(s)]. This is important for permutations_dicts
+            truck_destinations = {truck:list(
+                    customer_req_selected[customer_req_selected['Truck'] == truck]['Dest'])[0]
+                    for truck in np.unique(customer_req_selected['Truck'])}
+            # Permutations of Truck and Destinations(This is being looped below)
+            keys_truck, values_destination = zip(*truck_destinations.items())
+            permut_trucks_stocks = [list(zip(keys_truck, v)) 
+                                    for v in itertools.product(*values_destination)]
+            # Looping through the permutations of trucks that have multiple stocks
+            for perm_t_st in permut_trucks_stocks:
+                # Adding a dummy variable to truck_info. The values for the dummy will be [0,0,0].
+                # The purpose of the dummy is to model the Asymmetric TSP
+                # We are also changing the material for destination based on the permutation.
+                # Truck: destination, time_arrival (1-100), tonnage
+                customer_req_truckinfo = self.convert_cust_req(
+                                        truck_info, perm_t_st)
+                # Sorts customer_req_truckinfo based on arrival time (sanity check)
+                sorted_times = {key:customer_req_truckinfo[key][1]
+                                for i,key in enumerate(customer_req_truckinfo)}
+                sorted_times = dict(sorted(sorted_times.items(), key=lambda item: item[1]))
+                customer_req_truckinfo = {key: customer_req_truckinfo[key] for key in sorted_times}
+                # Truck:summation of arrival time
+                truck_sumation_time ={k:customer_req_truckinfo[k][1] for 
+                                            ind,k in enumerate(customer_req_truckinfo) if k != 'dummy'}
+                # Truck:time from the entrance to stock + time to be loaded
+                truck_tostock_time = {k: round(
+                    float(Dijkstra(self.graph,self.fixedloc['entrance'],self.fixedloc[customer_req_truckinfo[k][0]])[2])
+                                /self.truck_velocity)  # Dist/veloc = time to travel
+                                +int(math.ceil(customer_req_truckinfo[k][2]/loader_payload)*loader_cycletime)  # Time to load
+                                for k,v in customer_req_truckinfo.items() if k != 'dummy'}
+                # Time for the loader to travel from the stock of one truck to another.
+                loader_stock_time = {(tr1,tr2): round(
+                    float(Dijkstra(self.graph, self.fixedloc[customer_req_truckinfo[tr1][0]], self.fixedloc[customer_req_truckinfo[tr2][0]])[2])
+                    /loader_velocity #dist/veloc = time to travel
+                    +int(math.ceil(customer_req_truckinfo[tr2][2]/loader_payload)*loader_cycletime))  # Tload
+                    for tr1 in self.trucks for tr2 in self.trucks 
+                        if tr1 != tr2 and 'dum' not in tr1 and 'dum' not in tr2}
+                # Compute the idle time based on a sequence pair of trucks.
+                truck_times = {(tr1,tr2): idle_time(
+                        tr1,tr2,truck_sumation_time, truck_tostock_time,loader_stock_time)
+                        for tr1 in self.trucks for tr2 in self.trucks if  tr1 != tr2}
+                # TODO: We can also run the total time and make a comparison between idle time vs total cycle time
+                # Updating prospect_schedules
+                scheduling(truck_times,perm_t_st,prospect_schedules, self.trucks)
+            # Selecting the minimum idle time
+            minimum_idle_time = min(np.array(list(prospect_schedules.values()),dtype=object)[:,1])
+            # Selecting the permutation and best sequence that had the minimum idle time 
+            best_permutation = [[perm_t_st,v[0]] for k, v in prospect_schedules.items() if v[1]==minimum_idle_time]
+            # Truck: destination from the chosen permutation but not the best sequence
+            initial_truck_destination = {x[0]:x[1] for x in best_permutation[0][0]}
+            # Best sequence of (Truck,destination)
+            schedule = [(x,initial_truck_destination[x]) for x in best_permutation[0][1]]
+            initial_position_loader = schedule[0][1]
+            return schedule, minimum_idle_time, initial_position_loader   
 
     def modify_req_schedule_dest(self, schedule):
         """ Modify the customer requirement based on the best assignments (schedule).
-        It will delete multiple stocks for each truck and choose one based on sched.
+        It will delete multiple stocks for each truck and choose one and sort the table based
+        on the schedule.
         Args:
-            schedule(list of tuples): pairs of truck, stock within the best assignments
+            schedule(list of tuples): Pairs of (truck, stock) within the best assignment
     
         Returns
-            requirement_in(df):  customer req. processed for a customer with one
-            destination
+            new_df(df): Customer requirement with one stock for the destinations and also
+            sorted based on the schedule
         """
-        empty_list = []
+        new_truck_info = []
         for comb in schedule:
             truck = comb[0]
             dataf_truck = self.customer_req_available[
                 self.customer_req_available['Truck']==truck]
+            # Changing multiple stocks to one stock
             dataf_truck['Dest'] = comb[1]
-            empty_list.append(dataf_truck)
-        new_df = pd.concat(empty_list)
+            # Adding each row of a dataframe to a list
+            new_truck_info.append(dataf_truck)
+        new_df = pd.concat(new_truck_info)
         # TODO: Delete multiple loaders based on the schedule
         return new_df
 
@@ -371,7 +420,4 @@ class ConnectCustomer:
             else:
                 st = [st for st in self.materials_stocks if self.materials_stocks[st] == cust_req_dict[truck][0]]
             new_cust_req_dict[truck]= st + cust_req_dict[truck][1:]
-
-            # Note: The commented code was there for some reasons, but I tested without it
-            # and it gives me a correct result. It is left behing just in case.
         return new_cust_req_dict
