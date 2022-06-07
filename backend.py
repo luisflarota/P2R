@@ -279,6 +279,7 @@ class ConnectCustomer:
                 - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
         self.customer_req_available['Epoch'] = self.customer_req_available['Epoch'] + 6*3600
 
+    @st.cache
     def scheduling(self):
         """
         Gives the best sequence of assignments, (truck,stock), that minimizes the 
