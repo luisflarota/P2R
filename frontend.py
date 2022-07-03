@@ -138,7 +138,7 @@ def main():
                             'lime':stocks_lime,
                             'calcium':stocks_calc,
                             'preconcrete':stocks_prec}
-            st.success('Do you have a requirement form? If not:')
+            st.info('Do you have a requirement form? If not:')
             # Requirement form in a df
             require_form = download_excelfile(list(materials_stocks.keys())) 
             st.download_button('Please, download our requirement form',
@@ -155,11 +155,10 @@ def main():
                     st.warning('We do not have this set of materials:{}'.format(conn_customer.unavailable_materials))
                     # TODO: Check if trucks are duplicated 
                 if len(conn_customer.unavailable_materials)!=len(conn_customer.materials_customer_req):
-                    st.success('We can process the following requirement:')
+                    st.info('We can process the following requirement:')
                     st.dataframe(conn_customer.customer_req_available)
                     if st.checkbox('Start scheduling:'):
                         # Returns the (trucks,stock), min_idletime, first_stock
-                        # TODO: Freeze the scheduling method so it does not run again and againx100
                         schedule, minval, first_stock = conn_customer.scheduling()
                         # TODO: How to comunicate the best schedule
                         st.success('Schedule')
@@ -167,6 +166,7 @@ def main():
                         st.write('Idle time **{}** secs'.format(minval))
                         # Choose one destination for truck based on the schedule
                         last_data_customer = conn_customer.modify_req_schedule_dest(schedule)
+                        st.subheader("Customer Schedule with assigned stocks")
                         st.dataframe(last_data_customer)
                         # TODO: Have a checkbox that ask the user if they want to connect
                         # and update the Google Sheet 
