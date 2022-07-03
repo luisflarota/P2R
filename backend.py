@@ -102,7 +102,8 @@ class ConnectCustomer:
             'TypeLoader','Tonnage','Date','Time'])
         # Adding an epoch time to the customer_req_available
         self.add_epoch_column()
-        self.trucks = [truck for truck in self.customer_req_available['Truck']]
+        # Add dummy to trucks so the order of the list does not get fixed
+        self.trucks = ['dummy']+ [truck for truck in self.customer_req_available['Truck']]
 
     # TODO: Connecting and updating the google sheet. Either one or multiple methods
     def connect_gsheet(self):
@@ -362,7 +363,8 @@ class ConnectCustomer:
             # Truck: destination from the chosen permutation but not the best sequence
             initial_truck_destination = {x[0]:x[1] for x in best_permutation[0][0]}
             # Best sequence of (Truck,destination)
-            schedule = [(x,initial_truck_destination[x]) for x in best_permutation[0][1]]
+            # Delete the dummy variable from the best sequence
+            schedule = [(x,initial_truck_destination[x]) for x in best_permutation[0][1] if x != 'dummy']
             initial_position_loader = schedule[0][1]
             return schedule, minimum_idle_time, initial_position_loader   
 
