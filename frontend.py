@@ -126,7 +126,9 @@ def main():
             loading_properties['hopper']+=[
                 stocks_hopper,
                 1,
-                hopper_load
+                1e9,
+                hopper_load,
+                1
                 ]
     if materials_stocks_cb and loading_properties_cb:
         radio_saveprop = st.radio('Save properties:', ['Yes', 'No']
@@ -159,13 +161,14 @@ def main():
                     st.dataframe(conn_customer.customer_req_available)
                     if st.checkbox('Start scheduling:'):
                         # Returns the (trucks,stock), min_idletime, first_stock
-                        schedule, minval, first_stock = conn_customer.scheduling()
+                        schedule, minval,truck_times_recognizer = conn_customer.scheduling()
                         # TODO: How to comunicate the best schedule
                         st.success('Schedule')
-                        st.markdown(schedule)
+                        schedule_truck_stock_loader = [truck_times_recognizer[x] for x in schedule if x != 999]
+                        st.markdown(schedule_truck_stock_loader)
                         st.write('Idle time **{}** secs'.format(minval))
                         # Choose one destination for truck based on the schedule
-                        last_data_customer = conn_customer.modify_req_schedule_dest(schedule)
+                        last_data_customer = conn_customer.modify_req_schedule_dest(schedule_truck_stock_loader)
                         st.subheader("Customer Schedule with assigned stocks")
                         st.dataframe(last_data_customer)
                         # TODO: Have a checkbox that ask the user if they want to connect
@@ -173,8 +176,8 @@ def main():
                         # Connecting to the P2RData Google Sheet
                         # conn_customer.connect_gsheet()
 
-                        if st.checkbox('Show animation_2'):
-                            print(conn_customer.get_data_animation(first_stock,last_data_customer))
+                        #if st.checkbox('Show animation_2'):
+                        #    print(conn_customer.get_data_animation(first_stock,last_data_customer))
                     #except:
                      #   st.warning('Try another date/ Select stocks for loaders correctly')
     # else:
